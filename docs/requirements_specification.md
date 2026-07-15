@@ -41,6 +41,9 @@ ID
 
 最大255件
 
+背景はマインドマップの最上位ノードとする。
+上位要求は必ず1つの背景に属し、複数の背景を親に持つことはできない。
+
 ---
 
 ## 上位要求
@@ -56,6 +59,8 @@ ID形式
 001
 
 最大255件
+
+各上位要求は、必ず1つの背景に属する。
 
 ---
 
@@ -73,6 +78,9 @@ ID形式
 
 親ごと255件
 
+下位要求は、必ず1つの上位要求に属する。
+複数の上位要求を親に持つことはできない。
+
 ---
 
 ## 仕様
@@ -88,6 +96,9 @@ ID形式
 
 親ごと255件
 
+仕様は、必ず1つの下位要求に属する。
+所属先以外の下位要求は、関連する下位要求として任意に記録できるが、親にはならない。
+
 ---
 
 # 保存形式
@@ -97,34 +108,44 @@ YAML
 例
 
 ```yaml
-background:
+backgrounds:
 
-  - id: 001
+  - id: "001"
     text: 顧客が簡単に操作できること
 
 requirements:
 
-  - id: 001
+  - id: "001"
     request: 操作はマウスだけで完結する
     reason: 誰でも利用可能にするため
+    parent_background_id: "001"
 
-    children:
+  - id: "001-001"
+    request: 左クリックのみで編集可能
+    reason: 学習コスト削減
+    parent_requirement_id: "001"
 
-      - id: 001
+  - id: "002"
+    request: 編集内容を失わない
+    reason: 入力途中の作業を保護するため
+    parent_background_id: "001"
 
-        request: 左クリックのみで編集可能
+  - id: "002-001"
+    request: 編集内容を自動保存できる
+    reason: 入力途中の作業を保護するため
+    parent_requirement_id: "002"
 
-        reason: 学習コスト削減
+specifications:
 
-        specs:
+  - id: "001-001-001"
+    specification: 左クリックで入力ダイアログ表示
+    parent_requirement_id: "001-001"
 
-          - id: 001
-
-            spec: 左クリックで入力ダイアログ表示
-
-          - id: 002
-
-            spec: ダブルクリック不要
+  - id: "001-001-002"
+    specification: ダブルクリック不要
+    parent_requirement_id: "001-001"
+    related_requirement_ids:
+      - "002-001"
 ```
 
 ---
