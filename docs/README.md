@@ -29,7 +29,7 @@ USDM MindMap Editor は、USDM（Universal Specification Describing Manner）の
 | ファイル | 内容 |
 |---|---|
 | `requirements_specification.md` | 要求仕様の元資料 |
-| `issues.md` | 未決定事項、確認事項 |
+| `issues.md` | 検討事項、決定内容、対応状態 |
 | `architecture.md` | アプリケーション構成、責務分担 |
 | `UI.md` | 画面、操作、ノード表示仕様 |
 | `DataModel.md` | YAML と内部データモデル |
@@ -46,17 +46,25 @@ USDM MindMap Editor は、USDM（Universal Specification Describing Manner）の
 - 単一親の親子関係の管理
 - 仕様に対する関連下位要求の記録
 - ID 自動採番
-- YAML への保存
+- 各階層255件を上限とする ID 管理
+- 自動整列・自動配置
+- 固定配色と理由の折りたたみ表示
+- Undo / Redo (`Cmd+Z` / `Cmd+Y`)
+- YAML のブラウザダウンロード保存
 - YAML からの読み込み
-- ズーム、パン、ドラッグ移動
+- ズーム、パン
+- エクスポートメニューからの USDM 表ダウンロード
 
 以下は未決定事項を整理したうえで段階的に実装する。
 
-- Undo / Redo
-- 自動レイアウト
-- ノード座標保存
+- 接続線デザイン
+- YAML スキーマバージョン
+- ノード削除時の子要素の扱い
+- 理由を必須項目にするか
 
 親子関係は単一親とする。上位要求は1つの背景、下位要求は1つの上位要求、仕様は1つの下位要求にのみ属する。仕様に関連する下位要求がある場合は、親子関係にせず関連 ID として保存する。
+
+ノード位置は保存せず、自動整列・自動配置で再現する。YAML の保存はブラウザダウンロードとして行い、Google Drive 連携とユーザーによる配色変更は将来対応とする。
 
 ## 開発方針
 

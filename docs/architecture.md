@@ -71,6 +71,7 @@ UI とドメイン処理の間をつなぐ。
 - ノード追加、編集、削除のユースケース実行
 - ID 採番サービスの呼び出し
 - YAML 入出力サービスの呼び出し
+- USDM 表エクスポートの実行
 - 検証結果の UI 返却
 
 ### Domain Model
@@ -83,10 +84,10 @@ USDM の構造を表現する。
 - 上位要求
 - 下位要求
 - 仕様
-- ノード位置
 - 単一親の親子関係
 - 仕様から関連下位要求への参照
 - ID ルール
+- 自動レイアウトの対象となるツリー構造
 
 ### Persistence
 
@@ -96,6 +97,7 @@ YAML 形式で保存、読み込みを行う。
 
 - YAML へのシリアライズ
 - YAML からのデシリアライズ
+- ブラウザのダウンロードとしての YAML 出力
 - バージョン情報の読み書き
 - 読み込み時の互換性対応
 
@@ -107,9 +109,10 @@ YAML 形式で保存、読み込みを行う。
 | `BackgroundItem` | Core | 背景情報 |
 | `RequirementNode` | Core | 上位要求、下位要求と単一の親 ID |
 | `SpecificationNode` | Core | 仕様、所属先の下位要求 ID、関連下位要求 ID |
-| `NodePosition` | Core | キャンバス上の座標 |
 | `IdGenerator` | Core | ID 自動採番 |
+| `AutoLayoutService` | Core | ツリー構造からノード位置を自動計算 |
 | `UsdmYamlSerializer` | Core | YAML 保存、読み込み |
+| `UsdmTableExporter` | Core | USDM 表への変換とエクスポート用データの生成 |
 | `DocumentValidator` | Core | ID 重複、必須項目、上限件数の検証 |
 | `CanvasState` | Web | ズーム、パン、選択状態 |
 | `MindMapCanvas` | Web | マインドマップ描画 |
@@ -130,6 +133,8 @@ IdGenerator
   ↓
 UsdmDocument 更新
   ↓
+AutoLayoutService
+  ↓
 画面再描画
 ```
 
@@ -142,7 +147,7 @@ DocumentValidator
   ↓
 UsdmYamlSerializer
   ↓
-YAML ファイル出力
+ブラウザのダウンロード
 ```
 
 ### YAML 読み込み
@@ -154,9 +159,23 @@ UsdmYamlSerializer
   ↓
 DocumentValidator
   ↓
+AutoLayoutService
+  ↓
 CanvasState 初期化
   ↓
 画面表示
+```
+
+### USDM 表エクスポート
+
+```text
+エクスポートメニュー
+  ↓
+DocumentValidator
+  ↓
+UsdmTableExporter
+  ↓
+ブラウザのダウンロード
 ```
 
 ## 7. ID 採番方針
@@ -170,7 +189,7 @@ CanvasState 初期化
 | 下位要求 | `001-001` | 親ごと255件 |
 | 仕様 | `001-001-001` | 親ごと255件 |
 
-背景 ID は要求仕様書で `000～255` と記載があるが、YAML 例では `001` が使われている。開始番号は未決定事項として `issues.md` に記録する。
+背景 ID は `001` から開始し、`000` は使用しない。初期版の上限は各階層あたり255件とする。
 
 ## 8. 親子関係と関連要求の方針
 
@@ -185,12 +204,9 @@ CanvasState 初期化
 
 ## 9. レイアウト方針
 
-初期実装では、以下の両対応を前提とする。
+初期版は自動整列かつ自動配置とする。ノードの追加、削除、YAML 読み込み後に `AutoLayoutService` が位置を再計算する。
 
-- 自動配置: ノード追加時に親の近くへ初期配置する
-- 手動配置: ユーザーがノードをドラッグして位置調整する
-
-座標保存の有無は未決定だが、設計上は `position` を保持できるモデルにしておく。保存対象にするかどうかは `issues.md` の決定に従う。
+ノード位置は YAML に保存せず、ユーザーによる手動移動も提供しない。手動配置と座標保存は将来拡張とする。
 
 ## 10. 描画方針
 
@@ -232,5 +248,7 @@ Core 層を中心にテストする。
 - 上限件数検証
 - 親子関係検証
 - 関連下位要求の参照検証
+- 自動レイアウトが同一入力から同一配置を再現すること
+- USDM 表への変換結果が要求・理由・仕様の関係を保持すること
 
 UI 操作テストは、初期段階では手動確認を中心とし、安定後に Playwright 等の導入を検討する。

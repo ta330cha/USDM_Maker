@@ -14,7 +14,7 @@
 - 親子関係は ID で明示して検証可能にする
 - 上位要求は1つの背景、下位要求は1つの上位要求、仕様は1つの下位要求にのみ属する
 - 仕様と所属先以外の下位要求との関係は、親子関係ではなく関連情報として保存する
-- 将来の座標保存などに備えて拡張余地を残す
+- ノード座標は保存せず、読み込み時に自動レイアウトする
 
 ## 3. 文書モデル
 
@@ -55,7 +55,6 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 |---|---|---|---|
 | `id` | string | 必須 | 背景 ID |
 | `text` | string | 必須 | 背景本文 |
-| `position` | NodePosition | 任意 | キャンバス座標 |
 
 ### RequirementNode
 
@@ -68,7 +67,6 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 | `reason` | string | 必須 | 理由 |
 | `parent_background_id` | string | 上位要求では必須 | 所属する背景 ID |
 | `parent_requirement_id` | string | 下位要求では必須 | 所属する上位要求 ID |
-| `position` | NodePosition | 任意 | キャンバス座標 |
 
 上位要求では `parent_background_id` のみを設定し、下位要求では `parent_requirement_id` のみを設定する。両方の設定や未設定は認めない。
 
@@ -80,16 +78,8 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 | `specification` | string | 必須 | 仕様本文 |
 | `parent_requirement_id` | string | 必須 | 所属する下位要求 ID |
 | `related_requirement_ids` | string[] | 任意 | 関連する下位要求 ID の一覧 |
-| `position` | NodePosition | 任意 | キャンバス座標 |
 
 `related_requirement_ids` はトレーサビリティの補助情報である。仕様の所属先を変更せず、接続線による親子関係も作らない。
-
-### NodePosition
-
-| 項目 | 型 | 必須 | 説明 |
-|---|---|---|---|
-| `x` | number | 必須 | キャンバス X 座標 |
-| `y` | number | 必須 | キャンバス Y 座標 |
 
 ## 5. 関係と ID 形式
 
@@ -100,7 +90,7 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 | 下位要求 | 上位要求 ID + 3桁 | 上位要求 1件 | `001-001` | 親ごと255件 |
 | 仕様 | 下位要求 ID + 3桁 | 下位要求 1件 | `001-001-001` | 親ごと255件 |
 
-背景 ID の開始値は要求仕様書内で `000～255` と記載されている一方、例では `001` が使用されている。開始値は `issues.md` の Issue #011 の決定に従う。
+背景 ID は `001` から開始する。`000` はアプリケーションでは使用しない。
 
 ## 6. YAML 形式
 
@@ -113,26 +103,17 @@ title: USDM MindMap
 backgrounds:
   - id: "001"
     text: 顧客が簡単に操作できること
-    position:
-      x: 80
-      y: 80
 
 requirements:
   - id: "001"
     request: 操作はマウスだけで完結する
     reason: 誰でも利用可能にするため
     parent_background_id: "001"
-    position:
-      x: 320
-      y: 120
 
   - id: "001-001"
     request: 左クリックのみで編集可能
     reason: 学習コスト削減
     parent_requirement_id: "001"
-    position:
-      x: 320
-      y: 320
 
   - id: "002"
     request: 編集内容を失わない
@@ -148,9 +129,6 @@ specifications:
   - id: "001-001-001"
     specification: 左クリックで入力ダイアログ表示
     parent_requirement_id: "001-001"
-    position:
-      x: 680
-      y: 320
 
   - id: "001-001-002"
     specification: 編集内容を一定時間ごとに保存する
@@ -165,7 +143,7 @@ specifications:
 - 配列順は ID の昇順で安定して出力する
 - 未入力の任意項目は保存しない
 - `related_requirement_ids` は関連先がある場合のみ配列として保存する
-- `position` は座標保存を採用する場合のみ保存する
+- ノード座標は保存しない。読み込み時とノード構造の変更時に自動レイアウトする
 - YAML スキーマ変更に備えて `version` を付与する
 
 ## 8. 検証ルール
@@ -183,7 +161,6 @@ specifications:
 | 仕様の親 | 既存の下位要求 ID を `parent_requirement_id` に1つだけ設定すること |
 | ID と親の整合 | 下位要求と仕様の ID 接頭辞が親 ID と一致すること |
 | 関連要求 | `related_requirement_ids` が既存の下位要求 ID を重複なく参照すること |
-| 座標 | 保存する場合、`x` と `y` が数値であること |
 
 親子関係の循環は、背景から仕様までの固定4階層と単一親制約により発生しない。
 
@@ -203,7 +180,6 @@ public sealed class BackgroundItem
 {
     public string Id { get; set; } = "";
     public string Text { get; set; } = "";
-    public NodePosition? Position { get; set; }
 }
 
 public sealed class RequirementNode
@@ -213,7 +189,6 @@ public sealed class RequirementNode
     public string Reason { get; set; } = "";
     public string? ParentBackgroundId { get; set; }
     public string? ParentRequirementId { get; set; }
-    public NodePosition? Position { get; set; }
 }
 
 public sealed class SpecificationNode
@@ -222,10 +197,7 @@ public sealed class SpecificationNode
     public string Specification { get; set; } = "";
     public string ParentRequirementId { get; set; } = "";
     public List<string> RelatedRequirementIds { get; set; } = new();
-    public NodePosition? Position { get; set; }
 }
-
-public sealed record NodePosition(double X, double Y);
 ```
 
 ## 10. 将来拡張
@@ -234,9 +206,10 @@ public sealed record NodePosition(double X, double Y);
 
 - ノードの表示状態
 - 折り畳み状態
-- ノード色
+- ユーザーによるノード配色設定
 - コメント
 - 変更履歴
 - 関連要求の種別や説明
+- 手動レイアウトと座標保存
 
 複数親や仕様の共有は採用しない。将来方針を変更する場合は、YAML スキーマのメジャーバージョンを上げ、既存文書からの移行機能を別途設計する。
