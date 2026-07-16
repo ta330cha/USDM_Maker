@@ -69,6 +69,7 @@ UI とドメイン処理の間をつなぐ。
 責務:
 
 - ノード追加、編集、削除のユースケース実行
+- コピー、ペースト、検索のユースケース実行
 - ID 採番サービスの呼び出し
 - YAML 入出力サービスの呼び出し
 - USDM 表エクスポートの実行
@@ -111,9 +112,12 @@ YAML 形式で保存、読み込みを行う。
 | `SpecificationNode` | Core | 仕様、所属先の下位要求 ID、関連下位要求 ID |
 | `IdGenerator` | Core | ID 自動採番 |
 | `AutoLayoutService` | Core | ツリー構造からノード位置を自動計算 |
-| `UsdmYamlSerializer` | Core | YAML 保存、読み込み |
+| `UsdmYamlSerializer` | Core | 固定順 YAML の保存、読み込み |
 | `UsdmTableExporter` | Core | USDM 表への変換とエクスポート用データの生成 |
 | `DocumentValidator` | Core | ID 重複、必須項目、上限件数の検証 |
+| `ExportWarningService` | Core | 理由未入力など、エクスポート時の警告を収集 |
+| `NodeClipboardService` | Web | macOS のコピー、ペースト状態を管理 |
+| `NodeSearchService` | Web | 要求、理由、仕様の検索と一致ノードの特定 |
 | `CanvasState` | Web | ズーム、パン、選択状態 |
 | `MindMapCanvas` | Web | マインドマップ描画 |
 | `NodeEditorDialog` | Web | ノード入力、編集 |
@@ -173,6 +177,8 @@ CanvasState 初期化
   ↓
 DocumentValidator
   ↓
+ExportWarningService
+  ↓
 UsdmTableExporter
   ↓
 ブラウザのダウンロード
@@ -200,7 +206,7 @@ UsdmTableExporter
 - 仕様に関連する下位要求がある場合は、`related_requirement_ids` に ID を保存する。
 - 関連下位要求は参照情報であり、仕様の親子関係、ID 採番、標準のツリー接続線を変更しない。
 
-`DocumentValidator` は、親 ID の存在、親の種別、ID 接頭辞、関連下位要求 ID の存在と重複を検証する。
+`DocumentValidator` は、親 ID の存在、親の種別、ID 接頭辞、関連下位要求 ID の存在と重複を検証する。理由の未入力は YAML 保存時のエラーにせず、エクスポート時に `ExportWarningService` が警告として扱う。
 
 ## 9. レイアウト方針
 
@@ -210,13 +216,13 @@ UsdmTableExporter
 
 ## 10. 描画方針
 
-マインドマップのノードと接続線は、Blazor + SVG を第一候補とする。
+マインドマップのノードと接続線は Blazor + SVG で描画し、接続線はベジェ曲線とする。
 
 理由:
 
 - ノード間接続線を描画しやすい
 - ズーム、パンとの相性がよい
-- ベジェ曲線や折れ線に対応しやすい
+- 親子関係をベジェ曲線で視覚的に追いやすい
 - Canvas より DOM 要素として扱いやすく、初期実装の保守性が高い
 
 ノード本体は HTML 要素として重ねる方式、または SVG 内に描画する方式のどちらも可能とする。入力やダイアログとの相性を考えると、初期実装では HTML ノード + SVG 接続線を推奨する。
@@ -234,6 +240,8 @@ UsdmTableExporter
 - 関連下位要求 ID の参照先不正
 - 上限件数超過
 
+エクスポート時の理由未入力は警告であり、YAML 保存時のエラーにはしない。
+
 検証エラーは読み込み時に一覧表示し、可能であれば該当ノードへ移動できるようにする。
 
 ## 12. テスト方針
@@ -250,5 +258,7 @@ Core 層を中心にテストする。
 - 関連下位要求の参照検証
 - 自動レイアウトが同一入力から同一配置を再現すること
 - USDM 表への変換結果が要求・理由・仕様の関係を保持すること
+- 理由未入力時に YAML 保存は成功し、エクスポート時だけ警告されること
+- 同じ文書を繰り返し保存しても YAML のバイト列が変わらないこと
 
 UI 操作テストは、初期段階では手動確認を中心とし、安定後に Playwright 等の導入を検討する。
