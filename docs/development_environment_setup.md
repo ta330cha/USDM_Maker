@@ -258,6 +258,9 @@ https://localhost:5001
 - ID 採番
 - YAML 保存
 - 読み込み後保存時の差分確認
+- 旧版 YAML の変換確認
+
+Core 層の単体テストを初期段階から実行する。キャンバス操作が安定するまでは UI を手動確認し、主要操作が固まった段階で Playwright による UI 自動テストを追加する。
 
 ## 12. Docker Desktop について
 
@@ -355,4 +358,4 @@ dotnet dev-certs https --trust
 - 配布 README の内容
 - サンプル YAML の配置場所
 - YAML ライブラリの正式採用
-- UI 自動テストを導入するタイミング
+- Playwright による UI 自動テストの具体的な対象操作

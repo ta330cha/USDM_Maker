@@ -99,8 +99,8 @@ YAML 形式で保存、読み込みを行う。
 - YAML へのシリアライズ
 - YAML からのデシリアライズ
 - ブラウザのダウンロードとしての YAML 出力
-- バージョン情報の読み書き
-- 読み込み時の互換性対応
+- 保存時のソフトウェアバージョンの記録
+- ファイルバージョンに応じた読み込みと現在の内部モデルへの変換
 
 ## 5. 主要コンポーネント
 
@@ -113,6 +113,9 @@ YAML 形式で保存、読み込みを行う。
 | `IdGenerator` | Core | ID 自動採番 |
 | `AutoLayoutService` | Core | ツリー構造からノード位置を自動計算 |
 | `UsdmYamlSerializer` | Core | 固定順 YAML の保存、読み込み |
+| `UsdmYamlReaderFactory` | Core | YAML の `version` から対応する読み取り用クラスを選択 |
+| `IUsdmVersionedReader` | Core | 特定のファイルバージョンを現在の内部モデルへ読み込む |
+| `UsdmDocumentMigrator` | Core | 旧バージョンの文書を現在の内部モデルへ変換 |
 | `UsdmTableExporter` | Core | USDM 表への変換とエクスポート用データの生成 |
 | `DocumentValidator` | Core | ID 重複、必須項目、上限件数の検証 |
 | `ExportWarningService` | Core | 理由未入力など、エクスポート時の警告を収集 |
@@ -159,7 +162,11 @@ UsdmYamlSerializer
 ```text
 ファイル選択
   ↓
-UsdmYamlSerializer
+UsdmYamlReaderFactory
+  ↓
+IUsdmVersionedReader
+  ↓
+UsdmDocumentMigrator
   ↓
 DocumentValidator
   ↓
@@ -232,6 +239,8 @@ UsdmTableExporter
 想定する検証エラー:
 
 - YAML の構文エラー
+- 未対応のファイルバージョン
+- 旧ファイル形式からの変換エラー
 - 必須項目不足
 - ID 重複
 - ID 形式不正
@@ -260,5 +269,10 @@ Core 層を中心にテストする。
 - USDM 表への変換結果が要求・理由・仕様の関係を保持すること
 - 理由未入力時に YAML 保存は成功し、エクスポート時だけ警告されること
 - 同じ文書を繰り返し保存しても YAML のバイト列が変わらないこと
+- 現在のソフトウェアバージョンが `version` に保存されること
+- 旧バージョンの YAML を現在の内部モデルへ変換できること
+- 変換後に保存すると `version` が現在のソフトウェアバージョンへ更新されること
 
-UI 操作テストは、初期段階では手動確認を中心とし、安定後に Playwright 等の導入を検討する。
+初期段階では Core 層の単体テストを優先し、UI 操作は手動確認で進める。キャンバス操作が安定した段階で Playwright による主要操作の UI 自動テストを追加する。
+
+性能面は基本機能の実装後に再評価する。100、500、1,000ノード程度の測定用データを用意し、描画、自動レイアウト、YAML 読み書き、メモリ使用量を計測する。

@@ -44,7 +44,7 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 
 | 項目 | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `version` | string | 必須 | YAML スキーマバージョン |
+| `version` | string | 必須 | 最終保存時のソフトウェアバージョン |
 | `title` | string | 任意 | 文書タイトル |
 | `backgrounds` | BackgroundItem[] | 必須 | 背景一覧 |
 | `requirements` | RequirementNode[] | 必須 | 上位要求と下位要求の一覧 |
@@ -98,7 +98,7 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 初期推奨形式:
 
 ```yaml
-version: "1"
+version: "1.0.0"
 title: USDM MindMap
 
 backgrounds:
@@ -141,6 +141,7 @@ specifications:
 ## 7. YAML 保存ルール
 
 - トップレベルキーは `version`、`title`、`backgrounds`、`requirements`、`specifications` の順で出力する
+- `version` には保存時に実行中のソフトウェアバージョンを出力する
 - ID は文字列として保存し、先頭ゼロを維持する
 - ノード一覧と `related_requirement_ids` は ID の昇順で安定して出力する
 - ノード項目は ID、本文、親 ID、関連 ID の順で出力する
@@ -149,15 +150,23 @@ specifications:
 - インデントは半角スペース2個、改行コードは LF とする
 - 保存日時や自動生成 ID など、文書内容と無関係な情報は出力しない
 - ノード座標は保存しない。読み込み時とノード構造の変更時に自動レイアウトする
-- YAML スキーマ変更に備えて `version` を付与する
+- ファイル形式の変更に備えて `version` を付与する
 
-## 8. 検証ルール
+## 8. 旧バージョン YAML の読み込み
+
+YAML の `version` を確認し、そのファイルバージョンに対応する読み取り用クラスでデシリアライズする。
+ファイル形式を変更するバージョンアップでは、その形式に対応する読み取り用クラスと、現在の内部モデルへ変換する処理を追加する。
+
+変換済み文書は現在の内部モデルとして画面に表示する。保存時には現在のソフトウェアバージョンで `version` を更新し、現行形式の YAML として出力する。
+
+## 9. 検証ルール
 
 読み込み時と保存前に以下を検証する。
 
 | ルール | 内容 |
 |---|---|
 | 必須項目 | `text`、`request`、`specification` が空でないこと |
+| バージョン | `version` が空でなく、保存時のソフトウェアバージョンと一致すること |
 | ID 形式 | 種別ごとの ID 形式に一致すること |
 | ID 重複 | 同じ種別の ID が重複しないこと |
 | 上限件数 | 255件上限を超えないこと |
@@ -171,12 +180,12 @@ specifications:
 
 親子関係の循環は、背景から仕様までの固定4階層と単一親制約により発生しない。
 
-## 9. C# モデル案
+## 10. C# モデル案
 
 ```csharp
 public sealed class UsdmDocument
 {
-    public string Version { get; set; } = "1";
+    public string Version { get; set; } = "";
     public string? Title { get; set; }
     public List<BackgroundItem> Backgrounds { get; set; } = new();
     public List<RequirementNode> Requirements { get; set; } = new();
@@ -207,7 +216,7 @@ public sealed class SpecificationNode
 }
 ```
 
-## 10. 将来拡張
+## 11. 将来拡張
 
 以下は現時点で未決定だが、将来対応を考慮する。
 
@@ -219,4 +228,4 @@ public sealed class SpecificationNode
 - 関連要求の種別や説明
 - 手動レイアウトと座標保存
 
-複数親や仕様の共有は採用しない。将来方針を変更する場合は、YAML スキーマのメジャーバージョンを上げ、既存文書からの移行機能を別途設計する。
+複数親や仕様の共有は採用しない。将来方針を変更する場合は、対応する読み取り用クラスと変換処理を追加し、既存文書を現在の内部モデルへ移行できるようにする。
