@@ -1,10 +1,10 @@
-# USDM MindMap Editor アーキテクチャ設計書
+# USDM_MindMap_Editor アーキテクチャ設計書
 
 作成日: 2026-07-15
 
 ## 1. 目的
 
-本書は、USDM MindMap Editor のアプリケーション構成、主要コンポーネント、責務分担、処理方針を定義する。
+本書は、USDM_MindMap_Editor のアプリケーション構成、主要コンポーネント、責務分担、処理方針を定義する。
 
 ## 2. 技術前提
 
@@ -21,22 +21,22 @@
 推奨構成:
 
 ```text
-USDM_Maker/
-  USDM_Maker.sln
+USDM_Maker/ (ワークスペースの最上位フォルダ)
+  USDM_MindMap_Editor.sln
   global.json
   src/
-    USDM_Maker.Core/
-    USDM_Maker.Web/
+    USDM_MindMap_Editor.Core/
+    USDM_MindMap_Editor.Web/
   tests/
-    USDM_Maker.Core.Tests/
+    USDM_MindMap_Editor.Core.Tests/
   docs/
 ```
 
 | プロジェクト | 役割 |
 |---|---|
-| `USDM_Maker.Core` | USDM データモデル、ID 採番、YAML 入出力、検証、レイアウト計算 |
-| `USDM_Maker.Web` | Blazor Web App、画面、ユーザー操作、ファイル入出力 UI |
-| `USDM_Maker.Core.Tests` | Core 層の単体テスト |
+| `USDM_MindMap_Editor.Core` | USDM データモデル、ID 採番、YAML 入出力、検証、レイアウト計算 |
+| `USDM_MindMap_Editor.Web` | Blazor Web App、画面、ユーザー操作、ファイル入出力 UI |
+| `USDM_MindMap_Editor.Core.Tests` | Core 層の単体テスト |
 
 ## 4. レイヤー構成
 

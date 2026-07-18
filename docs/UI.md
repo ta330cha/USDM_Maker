@@ -1,10 +1,10 @@
-# USDM MindMap Editor UI 設計書
+# USDM_MindMap_Editor UI 設計書
 
 作成日: 2026-07-15
 
 ## 1. 目的
 
-本書は、USDM MindMap Editor の画面構成、操作、ノード表示、ダイアログ、状態表示を定義する。
+本書は、USDM_MindMap_Editor の画面構成、操作、ノード表示、ダイアログ、状態表示を定義する。
 
 ## 2. 基本方針
 

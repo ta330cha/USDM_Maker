@@ -1,4 +1,4 @@
-# USDM MindMap Editor
+# USDM_MindMap_Editor
 
 ## 概要
 

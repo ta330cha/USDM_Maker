@@ -1,10 +1,10 @@
-# USDM MindMap Editor ドキュメント
+# USDM_MindMap_Editor ドキュメント
 
 作成日: 2026-07-15
 
 ## 概要
 
-USDM MindMap Editor は、USDM（Universal Specification Describing Manner）の要求仕様をマインドマップ形式で整理・編集する Web アプリケーションである。
+USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の要求仕様をマインドマップ形式で整理・編集する Web アプリケーションである。
 
 要求、理由、仕様をノードとして追加し、要求から仕様までの関係を視覚的に扱えるようにする。保存形式は YAML とし、Git 管理しやすい人間可読なテキストとして保持する。
 

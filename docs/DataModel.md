@@ -1,10 +1,10 @@
-# USDM MindMap Editor データモデル設計書
+# USDM_MindMap_Editor データモデル設計書
 
 作成日: 2026-07-15
 
 ## 1. 目的
 
-本書は、USDM MindMap Editor で扱う内部データモデルと YAML 保存形式を定義する。
+本書は、USDM_MindMap_Editor で扱う内部データモデルと YAML 保存形式を定義する。
 
 ## 2. 基本方針
 
@@ -99,7 +99,7 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 
 ```yaml
 version: "1.0.0"
-title: USDM MindMap
+title: USDM_MindMap_Editor
 
 backgrounds:
   - id: "001"

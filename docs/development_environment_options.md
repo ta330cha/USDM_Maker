@@ -1,4 +1,4 @@
-# USDM MindMap Editor 開発環境検討メモ
+# USDM_MindMap_Editor 開発環境検討メモ
 
 作成日: 2026-07-15
 
@@ -19,18 +19,18 @@
 
 構成案:
 
-- `USDM_Maker.Core`
+- `USDM_MindMap_Editor.Core`
   - USDM データモデル
   - ID 採番
   - YAML 読み書き
   - 検証処理
   - レイアウト計算
-- `USDM_Maker.Web`
+- `USDM_MindMap_Editor.Web`
   - Blazor Web App
   - マインドマップ UI
   - ファイル読み込み、保存
   - ダイアログ、キャンバス操作
-- `USDM_Maker.Core.Tests`
+- `USDM_MindMap_Editor.Core.Tests`
   - ID 採番、YAML、検証処理のテスト
 
 利点:
