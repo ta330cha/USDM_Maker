@@ -1,0 +1,50 @@
+﻿@page "/"
+
+<PageTitle>USDM MindMap Editor</PageTitle>
+
+<div class="editor-shell">
+    <header class="editor-toolbar">
+        <strong>USDM MindMap Editor</strong>
+        <div class="toolbar-actions">
+            <button type="button">新規</button>
+            <button type="button">開く</button>
+            <button type="button">保存</button>
+            <button type="button">背景追加</button>
+            <button type="button">検索</button>
+            <button type="button">エクスポート</button>
+            <button type="button">ズームリセット</button>
+        </div>
+    </header>
+
+    <main class="mindmap-canvas" aria-label="マインドマップキャンバス">
+        <svg class="connectors" aria-hidden="true">
+            <path d="M 260 150 C 260 205, 340 205, 340 260" />
+            <path d="M 340 370 C 340 425, 420 425, 420 480" />
+            <path d="M 570 535 C 640 535, 640 535, 710 535" />
+        </svg>
+        <article class="node background-node" style="left: 140px; top: 80px">
+            <span class="node-id">001</span>
+            <p>顧客が簡単に操作できること</p>
+            <button type="button" title="上位要求を追加">＋</button>
+        </article>
+        <article class="node requirement-node" style="left: 220px; top: 260px">
+            <span class="node-id">001</span>
+            <p>操作はマウスだけで完結する</p>
+            <details><summary>理由</summary><p>誰でも利用可能にするため</p></details>
+            <button type="button" title="下位要求を追加">＋</button>
+        </article>
+        <article class="node requirement-node" style="left: 300px; top: 480px">
+            <span class="node-id">001-001</span>
+            <p>左クリックのみで編集できる</p>
+            <details><summary>理由</summary><p>学習コストを削減するため</p></details>
+            <button type="button" title="仕様を追加">＋</button>
+        </article>
+        <article class="node specification-node" style="left: 710px; top: 480px">
+            <span class="node-id">001-001-001</span>
+            <p>左クリックで入力ダイアログを表示する</p>
+            <small>関連要求 0件</small>
+        </article>
+    </main>
+
+    <footer class="editor-status">準備完了 ・ version 0.1.0 ・ 100%</footer>
+</div>

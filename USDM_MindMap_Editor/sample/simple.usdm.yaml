@@ -1,0 +1,18 @@
+version: "0.1.0"
+title: USDM_MindMap_Editor サンプル
+backgrounds:
+- id: "001"
+  text: 顧客が簡単に操作できること
+requirements:
+- id: "001"
+  request: 操作はマウスだけで完結する
+  reason: 誰でも利用可能にするため
+  parent_background_id: "001"
+- id: "001-001"
+  request: 左クリックのみで編集できる
+  reason: 学習コストを削減するため
+  parent_requirement_id: "001"
+specifications:
+- id: "001-001-001"
+  specification: 左クリックで入力ダイアログを表示する
+  parent_requirement_id: "001-001"
