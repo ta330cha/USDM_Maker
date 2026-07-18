@@ -1,2 +1,20 @@
 *.DS_Store
 *.pdf
+
+# .NET build outputs and intermediate files
+**/bin/
+**/obj/
+**/artifacts/
+**/TestResults/
+
+# IDE and user-specific settings
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test and coverage outputs
+*.trx
+*.coverage
+*.coveragexml
