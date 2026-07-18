@@ -98,7 +98,7 @@ YAML はノードを種別ごとの一覧として保存する。親子関係は
 初期推奨形式:
 
 ```yaml
-version: "1.0.0"
+version: "0.1.0"
 title: USDM_MindMap_Editor
 
 backgrounds:
