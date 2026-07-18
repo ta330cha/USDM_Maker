@@ -46,7 +46,7 @@ USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の
 - 単一親の親子関係の管理
 - 仕様に対する関連下位要求の記録
 - ID 自動採番
-- 各階層255件を上限とする ID 管理
+- 各採番範囲65535件を上限とする ID 管理
 - 自動整列・自動配置
 - 固定配色と理由の折りたたみ表示
 - Undo / Redo (`Cmd+Z` / `Cmd+Y`)
