@@ -444,8 +444,7 @@ Issue 番号は本書では確定しない。
 
 ### 17.2 資料間の確認事項
 
-- [UI.md](UI.md) は上位要求と下位要求の操作に「折り畳み」を記載している一方、[requirements_specification.md](requirements_specification.md) はノード折り畳みを将来拡張としている。初期版の対象か確認が必要である。
-- 「折り畳み」が理由の表示切り替えを指すのか、サブツリー全体を隠す操作を指すのかを明確にする必要がある。
+- [UI.md](UI.md) と [requirements_specification.md](requirements_specification.md) では、理由の展開・折りたたみを初期版、子ノードを隠すサブツリー折り畳みを将来対応として区別した。
 - [architecture.md](architecture.md) は HTML ノード + SVG 接続線を推奨案としている。現行実装はこの方式を使用しているが、正式な確定方式とするか確認が必要である。
 - 手動編集可能という基本方針が本文編集だけを指すのか、将来の手動配置まで含むのか確認が必要である。初期版の手動移動なしは決定済みである。
 
