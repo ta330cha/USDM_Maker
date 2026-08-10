@@ -1,4 +1,11 @@
 ﻿@page "/"
+@rendermode InteractiveServer
+@using System.Globalization
+@using USDM_MindMap_Editor.Core.Layout
+@using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.Web.State
+@inject AutoLayoutService LayoutService
+@inject IJSRuntime JS
 
 <PageTitle>USDM MindMap Editor</PageTitle>
 
@@ -12,39 +19,116 @@
             <button type="button">背景追加</button>
             <button type="button">検索</button>
             <button type="button">エクスポート</button>
-            <button type="button">ズームリセット</button>
+            <button type="button" @onclick="ResetZoom">ズームリセット</button>
         </div>
     </header>
 
-    <main class="mindmap-canvas" aria-label="マインドマップキャンバス">
-        <svg class="connectors" aria-hidden="true">
-            <path d="M 260 150 C 260 205, 340 205, 340 260" />
-            <path d="M 340 370 C 340 425, 420 425, 420 480" />
-            <path d="M 570 535 C 640 535, 640 535, 710 535" />
-        </svg>
-        <article class="node background-node" style="left: 140px; top: 80px">
-            <span class="node-id">001</span>
-            <p>顧客が簡単に操作できること</p>
-            <button type="button" title="上位要求を追加">＋</button>
-        </article>
-        <article class="node requirement-node" style="left: 220px; top: 260px">
-            <span class="node-id">001</span>
-            <p>操作はマウスだけで完結する</p>
-            <details><summary>理由</summary><p>誰でも利用可能にするため</p></details>
-            <button type="button" title="下位要求を追加">＋</button>
-        </article>
-        <article class="node requirement-node" style="left: 300px; top: 480px">
-            <span class="node-id">001-001</span>
-            <p>左クリックのみで編集できる</p>
-            <details><summary>理由</summary><p>学習コストを削減するため</p></details>
-            <button type="button" title="仕様を追加">＋</button>
-        </article>
-        <article class="node specification-node" style="left: 710px; top: 480px">
-            <span class="node-id">001-001-001</span>
-            <p>左クリックで入力ダイアログを表示する</p>
-            <small>関連要求 0件</small>
-        </article>
+    <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス">
+        <div class="mindmap-world" style="@WorldStyle">
+            <svg class="connectors" width="@_layout.CanvasBounds.Width" height="@_layout.CanvasBounds.Height" aria-hidden="true">
+                @foreach (var edge in _layout.Edges)
+                {
+                    <path d="@PathFor(edge)" />
+                }
+            </svg>
+            @foreach (var node in _layout.Nodes)
+            {
+                <article class="node @NodeClass(node.Kind)" id="node-@node.Key" style="@NodeStyle(node)">
+                    <span class="node-id">@node.Id</span>
+                    <p>@node.Text</p>
+                    @if (!string.IsNullOrWhiteSpace(node.Reason))
+                    {
+                        <details><summary>理由</summary><p>@node.Reason</p></details>
+                    }
+                </article>
+            }
+        </div>
     </main>
 
-    <footer class="editor-status">準備完了 ・ version 0.1.0 ・ 100%</footer>
+    <footer class="editor-status">準備完了 ・ version 0.1.0 ・ <span class="zoom-status">100%</span></footer>
 </div>
+
+@code {
+    private readonly LayoutSettings _settings = new();
+    private readonly CanvasState _canvas = new();
+    private readonly UsdmDocument _document = CreateSampleDocument();
+    private LayoutResult _layout = null!;
+    private Dictionary<string, NodeSize> _measuredSizes = new(StringComparer.Ordinal);
+    private ElementReference _canvasElement;
+    private IJSObjectReference? _canvasModule;
+    private DotNetObjectReference<Home>? _dotNetReference;
+
+    protected override void OnInitialized()
+    {
+        _canvas.Reset(_settings);
+        _layout = LayoutService.Calculate(new LayoutRequest { Document = _document, Settings = _settings });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
+        _dotNetReference = DotNetObjectReference.Create(this);
+        await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference);
+        var measurements = await _canvasModule.InvokeAsync<MeasuredNodeSize[]>("measureNodes", _canvasElement);
+        var nextMeasurements = measurements
+            .Where(x => x.Width > 0 && x.Height > 0)
+            .ToDictionary(x => x.Key, x => new NodeSize(x.Width, x.Height), StringComparer.Ordinal);
+        if (nextMeasurements.Any(x => !_measuredSizes.TryGetValue(x.Key, out var old) || old != x.Value))
+        {
+            _measuredSizes = nextMeasurements;
+            _layout = LayoutService.Calculate(new LayoutRequest
+            {
+                Document = _document,
+                Settings = _settings,
+                MeasuredSizes = _measuredSizes
+            });
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public Task CanvasReady() => Task.CompletedTask;
+
+    [JSInvokable]
+    public Task CanvasChanged(double zoom, double panX, double panY)
+    {
+        _canvas.Synchronize(zoom, panX, panY, _settings);
+        return Task.CompletedTask;
+    }
+
+    private async Task ResetZoom()
+    {
+        _canvas.Reset(_settings);
+        if (_canvasModule is not null) await _canvasModule.InvokeVoidAsync("resetCanvas", _canvasElement);
+    }
+
+    private string WorldStyle => $"width:{Px(_layout.CanvasBounds.Width)}; height:{Px(_layout.CanvasBounds.Height)}";
+
+    private static string NodeStyle(LayoutNode node) =>
+        $"left:{Px(node.Bounds.X)}; top:{Px(node.Bounds.Y)}; width:{Px(node.Bounds.Width)}; min-height:{Px(node.Bounds.Height)}";
+
+    private static string Px(double value) => $"{value.ToString("0.##", CultureInfo.InvariantCulture)}px";
+
+    private static string PathFor(LayoutEdge edge) => string.Create(CultureInfo.InvariantCulture,
+        $"M {edge.Start.X:0.##} {edge.Start.Y:0.##} C {edge.ControlPoint1.X:0.##} {edge.ControlPoint1.Y:0.##}, {edge.ControlPoint2.X:0.##} {edge.ControlPoint2.Y:0.##}, {edge.End.X:0.##} {edge.End.Y:0.##}");
+
+    private static string NodeClass(LayoutNodeKind kind) => kind switch
+    {
+        LayoutNodeKind.Background => "background-node",
+        LayoutNodeKind.Specification => "specification-node",
+        _ => "requirement-node"
+    };
+
+    private static UsdmDocument CreateSampleDocument() => new()
+    {
+        Title = "USDM_MindMap_Editor サンプル",
+        Backgrounds = [new() { Id = "001", Text = "顧客が簡単に操作できること" }],
+        Requirements =
+        [
+            new() { Id = "001", Request = "操作はマウスだけで完結する", Reason = "誰でも利用可能にするため", ParentBackgroundId = "001" },
+            new() { Id = "001-001", Request = "左クリックのみで編集できる", Reason = "学習コストを削減するため", ParentRequirementId = "001" }
+        ],
+        Specifications = [new() { Id = "001-001-001", Specification = "左クリックで入力ダイアログを表示する", ParentRequirementId = "001-001" }]
+    };
+}

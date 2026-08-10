@@ -1,10 +1,12 @@
 using USDM_MindMap_Editor.Web.Components;
+using USDM_MindMap_Editor.Core.Layout;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddSingleton<AutoLayoutService>();
 
 var app = builder.Build();
 
