@@ -1,4 +1,5 @@
 using USDM_MindMap_Editor.Core.Models;
+using USDM_MindMap_Editor.Core.Ids;
 
 namespace USDM_MindMap_Editor.Core.Layout;
 
@@ -40,16 +41,16 @@ public sealed class AutoLayoutService : ILayoutEngine
         var measured = request.MeasuredSizes ?? new Dictionary<string, NodeSize>(StringComparer.Ordinal);
 
         NodeSize Size(LayoutNodeKind kind, string id, string text, string? reason) =>
-            (measured.TryGetValue($"{kind}:{id}", out var keyedValue) && keyedValue.IsValid ? keyedValue :
+            (measured.TryGetValue(NodeKey(kind, id), out var keyedValue) && keyedValue.IsValid ? keyedValue :
              measured.TryGetValue(id, out var legacyValue) && legacyValue.IsValid ? legacyValue : default) is var value && value.IsValid
                 ? value
-                : predictor.Predict(kind, text, reason, expanded.Contains(id));
+                : predictor.Predict(kind, text, reason, IsExpanded(kind, id, expanded));
 
-        var backgrounds = document.Backgrounds.OrderBy(x => x.Id, StringComparer.Ordinal).Select(background =>
+        var backgrounds = document.Backgrounds.OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer).Select(background =>
         {
             var upper = document.Requirements
                 .Where(x => x.ParentBackgroundId == background.Id)
-                .OrderBy(x => x.Id, StringComparer.Ordinal)
+                .OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer)
                 .Select(requirement => BuildRequirement(document, requirement, Size, expanded))
                 .ToList();
             var node = new LayoutNode(background.Id, LayoutNodeKind.Background, background.Text, null, null,
@@ -65,7 +66,7 @@ public sealed class AutoLayoutService : ILayoutEngine
     {
         var lower = document.Requirements
             .Where(x => x.ParentRequirementId == requirement.Id)
-            .OrderBy(x => x.Id, StringComparer.Ordinal)
+            .OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer)
             .Select(x => BuildLowerRequirement(document, x, size, expanded))
             .ToList();
         var kind = requirement.ParentBackgroundId is not null ? LayoutNodeKind.TopLevelRequirement : LayoutNodeKind.LowerLevelRequirement;
@@ -80,7 +81,7 @@ public sealed class AutoLayoutService : ILayoutEngine
     {
         var specifications = document.Specifications
             .Where(x => x.ParentRequirementId == requirement.Id)
-            .OrderBy(x => x.Id, StringComparer.Ordinal)
+            .OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer)
             .Select(x => new TreeItem(
                 new LayoutNode(x.Id, LayoutNodeKind.Specification, x.Specification, null, x.ParentRequirementId,
                     size(LayoutNodeKind.Specification, x.Id, x.Specification, null), default), []))
@@ -89,6 +90,17 @@ public sealed class AutoLayoutService : ILayoutEngine
             requirement.ParentRequirementId, size(LayoutNodeKind.LowerLevelRequirement, requirement.Id, requirement.Request, requirement.Reason), default);
         return new TreeItem(node, specifications);
     }
+
+    private static bool IsExpanded(LayoutNodeKind kind, string id, IReadOnlySet<string> expanded) =>
+        expanded.Contains(id) || expanded.Contains(NodeKey(kind, id));
+
+    private static string NodeKey(LayoutNodeKind kind, string id) => kind switch
+    {
+        LayoutNodeKind.Background => $"background:{id}",
+        LayoutNodeKind.TopLevelRequirement or LayoutNodeKind.LowerLevelRequirement => $"requirement:{id}",
+        LayoutNodeKind.Specification => $"specification:{id}",
+        _ => $"unknown:{id}"
+    };
 
     private static double MeasureSubtree(TreeItem item, LayoutSettings settings)
     {

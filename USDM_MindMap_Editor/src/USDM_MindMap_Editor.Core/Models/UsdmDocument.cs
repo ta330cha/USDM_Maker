@@ -3,10 +3,36 @@ namespace USDM_MindMap_Editor.Core.Models;
 public sealed class UsdmDocument
 {
     public string Version { get; set; } = AppVersion.Current;
+    public int FormatVersion { get; set; } = DocumentFormat.Current;
     public string? Title { get; set; }
     public List<BackgroundItem> Backgrounds { get; set; } = [];
     public List<RequirementNode> Requirements { get; set; } = [];
     public List<SpecificationNode> Specifications { get; set; } = [];
+    public DocumentViewState View { get; set; } = new();
+}
+
+public static class DocumentFormat
+{
+    public const int Legacy = 1;
+    public const int Current = 2;
+}
+
+public sealed class DocumentViewState
+{
+    public double Zoom { get; set; } = 1.0;
+    public PanState Pan { get; set; } = new();
+    public Dictionary<string, NodeViewState> Nodes { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class PanState
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+}
+
+public sealed class NodeViewState
+{
+    public bool ReasonExpanded { get; set; }
 }
 
 public sealed class BackgroundItem

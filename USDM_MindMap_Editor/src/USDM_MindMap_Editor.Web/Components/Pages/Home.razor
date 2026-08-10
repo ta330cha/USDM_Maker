@@ -38,7 +38,14 @@
                     <p>@node.Text</p>
                     @if (!string.IsNullOrWhiteSpace(node.Reason))
                     {
-                        <details><summary>理由</summary><p>@node.Reason</p></details>
+                        @if (IsReasonExpanded(node.Key))
+                        {
+                            <details open><summary>理由</summary><p>@node.Reason</p></details>
+                        }
+                        else
+                        {
+                            <details><summary>理由</summary><p>@node.Reason</p></details>
+                        }
                     }
                 </article>
             }
@@ -54,36 +61,51 @@
     private readonly UsdmDocument _document = CreateSampleDocument();
     private LayoutResult _layout = null!;
     private Dictionary<string, NodeSize> _measuredSizes = new(StringComparer.Ordinal);
+    private bool _measurePending;
     private ElementReference _canvasElement;
     private IJSObjectReference? _canvasModule;
     private DotNetObjectReference<Home>? _dotNetReference;
 
     protected override void OnInitialized()
     {
-        _canvas.Reset(_settings);
-        _layout = LayoutService.Calculate(new LayoutRequest { Document = _document, Settings = _settings });
+        _canvas.Apply(_document.View, _settings);
+        _layout = CalculateLayout();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
-        _dotNetReference = DotNetObjectReference.Create(this);
-        await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference);
-        var measurements = await _canvasModule.InvokeAsync<MeasuredNodeSize[]>("measureNodes", _canvasElement);
+        if (firstRender)
+        {
+            _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
+            _dotNetReference = DotNetObjectReference.Create(this);
+            await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
+                _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep);
+        }
+        else if (!_measurePending)
+        {
+            return;
+        }
+
+        _measurePending = false;
+        var measurements = await _canvasModule!.InvokeAsync<MeasuredNodeSize[]>("measureNodes", _canvasElement);
         var nextMeasurements = measurements
             .Where(x => x.Width > 0 && x.Height > 0)
             .ToDictionary(x => x.Key, x => new NodeSize(x.Width, x.Height), StringComparer.Ordinal);
         if (nextMeasurements.Any(x => !_measuredSizes.TryGetValue(x.Key, out var old) || old != x.Value))
         {
             _measuredSizes = nextMeasurements;
-            _layout = LayoutService.Calculate(new LayoutRequest
+            var significant = measurements.Any(measurement =>
             {
-                Document = _document,
-                Settings = _settings,
-                MeasuredSizes = _measuredSizes
+                var node = _layout.Nodes.FirstOrDefault(x => x.Key == measurement.Key);
+                return node is not null && Math.Abs(Math.Max(measurement.Height, _settings.MinNodeHeight) - node.Size.Height)
+                    > _settings.MeasuredDifferenceThreshold(node.Size.Height);
             });
-            await InvokeAsync(StateHasChanged);
+            _measuredSizes = nextMeasurements;
+            if (significant)
+            {
+                _layout = CalculateLayout();
+                await InvokeAsync(StateHasChanged);
+            }
         }
     }
 
@@ -94,12 +116,28 @@
     public Task CanvasChanged(double zoom, double panX, double panY)
     {
         _canvas.Synchronize(zoom, panX, panY, _settings);
+        _document.View.Zoom = _canvas.Zoom;
+        _document.View.Pan.X = _canvas.PanX;
+        _document.View.Pan.Y = _canvas.PanY;
         return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public async Task ReasonChanged(string key, bool expanded)
+    {
+        if (expanded) _document.View.Nodes[key] = new NodeViewState { ReasonExpanded = true };
+        else _document.View.Nodes.Remove(key);
+        _layout = CalculateLayout();
+        _measurePending = true;
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ResetZoom()
     {
         _canvas.Reset(_settings);
+        _document.View.Zoom = _canvas.Zoom;
+        _document.View.Pan.X = _canvas.PanX;
+        _document.View.Pan.Y = _canvas.PanY;
         if (_canvasModule is not null) await _canvasModule.InvokeVoidAsync("resetCanvas", _canvasElement);
     }
 
@@ -119,6 +157,16 @@
         LayoutNodeKind.Specification => "specification-node",
         _ => "requirement-node"
     };
+
+    private bool IsReasonExpanded(string key) => _document.View.Nodes.TryGetValue(key, out var state) && state.ReasonExpanded;
+
+    private LayoutResult CalculateLayout() => LayoutService.Calculate(new LayoutRequest
+    {
+        Document = _document,
+        Settings = _settings,
+        MeasuredSizes = _measuredSizes,
+        ExpandedReasonNodeIds = _document.View.Nodes.Where(x => x.Value.ReasonExpanded).Select(x => x.Key).ToHashSet(StringComparer.Ordinal)
+    });
 
     private static UsdmDocument CreateSampleDocument() => new()
     {

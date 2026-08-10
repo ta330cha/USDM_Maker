@@ -1,4 +1,5 @@
 using USDM_MindMap_Editor.Core.Layout;
+using USDM_MindMap_Editor.Core.Models;
 
 namespace USDM_MindMap_Editor.Web.State;
 
@@ -7,6 +8,18 @@ public sealed class CanvasState
     public double Zoom { get; private set; } = 1.0;
     public double PanX { get; private set; }
     public double PanY { get; private set; }
+
+    public void Apply(DocumentViewState view, LayoutSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        Synchronize(view.Zoom, view.Pan.X, view.Pan.Y, settings);
+    }
+
+    public DocumentViewState ToView() => new()
+    {
+        Zoom = Zoom,
+        Pan = new PanState { X = PanX, Y = PanY }
+    };
 
     public void Reset(LayoutSettings settings)
     {

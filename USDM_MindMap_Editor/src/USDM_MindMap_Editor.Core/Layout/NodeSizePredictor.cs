@@ -12,16 +12,22 @@ public sealed class NodeSizePredictor
     {
         var textLines = CountLines(text);
         var reasonLines = reasonExpanded && !string.IsNullOrWhiteSpace(reason) ? CountLines(reason) : 0;
-        var headerLines = kind == LayoutNodeKind.Background ? 0 : 1;
-        var actionHeight = kind == LayoutNodeKind.Specification ? 18 : 24;
-        var lineCount = Math.Max(1, textLines + reasonLines + headerLines);
-        var height = _settings.VerticalPadding * 2 + actionHeight + lineCount * _settings.LineHeight;
+        var reasonHeight = reasonLines == 0
+            ? 0
+            : _settings.SectionGap + reasonLines * _settings.LineHeight;
+        var height = (_settings.VerticalPadding * 2)
+            + _settings.IdAreaHeight
+            + _settings.SectionGap
+            + textLines * _settings.LineHeight
+            + reasonHeight
+            + _settings.OperationAreaHeight;
+        height = Math.Max(height, _settings.MinNodeHeight);
         return new NodeSize(_settings.NodeWidth, height);
     }
 
     private int CountLines(string? text)
     {
         if (string.IsNullOrEmpty(text)) return 1;
-        return text.Split('\n').Sum(line => Math.Max(1, (int)Math.Ceiling(line.Length / (double)_settings.CharactersPerLine)));
+        return text.Split('\n').Sum(line => Math.Max(1, (int)Math.Ceiling(line.Length / (double)_settings.EstimatedCharsPerLine)));
     }
 }

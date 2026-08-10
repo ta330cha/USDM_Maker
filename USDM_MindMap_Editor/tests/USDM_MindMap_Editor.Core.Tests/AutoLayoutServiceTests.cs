@@ -1,4 +1,5 @@
 using USDM_MindMap_Editor.Core.Layout;
+using USDM_MindMap_Editor.Core.Models;
 
 namespace USDM_MindMap_Editor.Core.Tests;
 
@@ -54,5 +55,43 @@ public sealed class AutoLayoutServiceTests
         var edge = result.Edges.Single(x => x.ParentId == lower.Key && x.ChildId == specification.Key);
         Assert.AreEqual(lower.Bounds.RightCenter, edge.Start);
         Assert.AreEqual(specification.Bounds.LeftCenter, edge.End);
+    }
+
+    [TestMethod]
+    public void UsesCurrentDesignPredictionSettings()
+    {
+        var settings = new LayoutSettings();
+        var size = new NodeSizePredictor(settings).Predict(
+            LayoutNodeKind.TopLevelRequirement,
+            "短い要求",
+            null,
+            reasonExpanded: false);
+
+        Assert.AreEqual(280, size.Width);
+        Assert.AreEqual(110, size.Height);
+        Assert.AreEqual(8, settings.MeasuredDifferenceThreshold(80));
+        Assert.AreEqual(12, settings.MeasuredDifferenceThreshold(120));
+    }
+
+    [TestMethod]
+    public void SortsSiblingIdsByNumericSegments()
+    {
+        var document = new UsdmDocument
+        {
+            Backgrounds =
+            [
+                new() { Id = "1000", Text = "大きいID" },
+                new() { Id = "999", Text = "小さいID" }
+            ],
+            Requirements =
+            [
+                new() { Id = "1000", Request = "要求", ParentBackgroundId = "1000" },
+                new() { Id = "999", Request = "要求", ParentBackgroundId = "999" }
+            ]
+        };
+
+        var backgrounds = new AutoLayoutService().Calculate(new LayoutRequest { Document = document })
+            .Nodes.Where(x => x.Kind == LayoutNodeKind.Background).Select(x => x.Id).ToArray();
+        CollectionAssert.AreEqual(new[] { "999", "1000" }, backgrounds);
     }
 }

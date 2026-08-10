@@ -12,11 +12,53 @@ public sealed class UsdmDocumentValidator
         if (string.IsNullOrWhiteSpace(document.Version)) result.Add("version.required", "version は必須です。");
         else if (requireCurrentVersion && document.Version != AppVersion.Current)
             result.Add("version.unsupported", $"version は {AppVersion.Current} である必要があります。");
+        else if (!Version.TryParse(document.Version, out _) || document.Version.Count(x => x == '.') != 2)
+            result.Add("version.invalid", "version は SemVer 形式で指定してください。");
+
+        if (document.FormatVersion is < DocumentFormat.Legacy or > DocumentFormat.Current)
+            result.Add("format_version.unsupported", $"format_version は {DocumentFormat.Legacy} または {DocumentFormat.Current} に対応しています。 ");
 
         ValidateBackgrounds(document, result);
         ValidateRequirements(document, result);
         ValidateSpecifications(document, result);
+        ValidateView(document, result);
         return result;
+    }
+
+    private static void ValidateView(UsdmDocument document, ValidationResult result)
+    {
+        var view = document.View ?? new DocumentViewState();
+        var pan = view.Pan ?? new PanState();
+        if (double.IsNaN(view.Zoom) || double.IsInfinity(view.Zoom) || view.Zoom is < 0.25 or > 2.0)
+            result.Add("view.zoom.invalid", "view.zoom は0.25〜2.0の有限値で指定してください。");
+        if (double.IsNaN(pan.X) || double.IsInfinity(pan.X) || double.IsNaN(pan.Y) || double.IsInfinity(pan.Y))
+            result.Add("view.pan.invalid", "view.pan.x と view.pan.y は有限値で指定してください。");
+
+        var backgroundIds = document.Backgrounds.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        var requirementIds = document.Requirements.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        var specificationIds = document.Specifications.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var (key, state) in view.Nodes)
+        {
+            var separator = key.IndexOf(':');
+            if (separator <= 0 || separator == key.Length - 1)
+            {
+                result.Add("view.node.invalid", "view.nodes のキーは node-kind:id 形式で指定してください.", key);
+                continue;
+            }
+
+            var kind = key[..separator];
+            var id = key[(separator + 1)..];
+            var exists = kind switch
+            {
+                "background" => backgroundIds.Contains(id),
+                "requirement" => requirementIds.Contains(id),
+                "specification" => specificationIds.Contains(id),
+                _ => false
+            };
+            if (!exists) result.Add("view.node.missing", "view.nodes が存在しないノードを参照しています。", key);
+            if (state.ReasonExpanded && kind != "requirement")
+                result.Add("view.node.reason_invalid", "reason_expanded は要求ノードだけに設定できます。", key);
+        }
     }
 
     private static void ValidateBackgrounds(UsdmDocument document, ValidationResult result)

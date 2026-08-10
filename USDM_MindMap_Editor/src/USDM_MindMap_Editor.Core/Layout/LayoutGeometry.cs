@@ -29,5 +29,11 @@ public sealed record LayoutNode(
     NodeSize Size,
     LayoutRect Bounds)
 {
-    public string Key => $"{Kind}:{Id}";
+    public string Key => Kind switch
+    {
+        LayoutNodeKind.Background => $"background:{Id}",
+        LayoutNodeKind.TopLevelRequirement or LayoutNodeKind.LowerLevelRequirement => $"requirement:{Id}",
+        LayoutNodeKind.Specification => $"specification:{Id}",
+        _ => $"unknown:{Id}"
+    };
 }

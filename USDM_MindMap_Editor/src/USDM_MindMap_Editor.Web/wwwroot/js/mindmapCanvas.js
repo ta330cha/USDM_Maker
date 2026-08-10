@@ -1,10 +1,10 @@
-export function attachCanvas(root, dotnet) {
+export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, initialPanY = 0, minZoom = .25, maxZoom = 2, zoomStep = .1) {
     const world = root.querySelector('.mindmap-world');
     if (!world) return;
 
-    let zoom = 1;
-    let panX = 0;
-    let panY = 0;
+    let zoom = initialZoom;
+    let panX = initialPanX;
+    let panY = initialPanY;
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
@@ -26,8 +26,7 @@ export function attachCanvas(root, dotnet) {
         const bounds = root.getBoundingClientRect();
         const pointerX = event.clientX - bounds.left;
         const pointerY = event.clientY - bounds.top;
-        const factor = event.deltaY < 0 ? 1.1 : 0.9;
-        const nextZoom = Math.min(2, Math.max(.25, zoom * factor));
+        const nextZoom = Math.min(maxZoom, Math.max(minZoom, zoom + (event.deltaY < 0 ? zoomStep : -zoomStep)));
         const canvasX = (pointerX - panX) / zoom;
         const canvasY = (pointerY - panY) / zoom;
         zoom = nextZoom;
@@ -55,6 +54,11 @@ export function attachCanvas(root, dotnet) {
     });
     root.addEventListener('pointerup', () => dragging = false);
     root.addEventListener('pointercancel', () => dragging = false);
+
+    root.querySelectorAll('details').forEach(details => details.addEventListener('toggle', () => {
+        const node = details.closest('.node');
+        if (node) dotnet.invokeMethodAsync('ReasonChanged', node.id.substring(5), details.open).catch(() => {});
+    }));
 
     dotnet.invokeMethodAsync('CanvasReady').catch(() => {});
     apply();
