@@ -36,7 +36,7 @@ USDM_MindMap_Editor は、USDM の要求仕様をマインドマップ形式で�
 | エディタ | Visual Studio Code | C# / Razor / Markdown 編集 |
 | VS Code 拡張 | C# Dev Kit、C#、EditorConfig for VS Code | C# 開発支援 |
 | Git | macOS Command Line Tools 付属 Git または Homebrew Git | バージョン管理 |
-| ブラウザ | Safari / Chrome | UI 確認 |
+| ブラウザ | Google Chrome 最新安定版 / Safari 最新版 | Chrome は一次性能評価、Safari は互換性・実動作確認 |
 | Docker Desktop | 任意 | 将来の環境固定・配布検証用 |
 
 ## 5. .NET SDK の選定

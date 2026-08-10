@@ -33,6 +33,7 @@ USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の
 | `architecture.md` | アプリケーション構成、責務分担 |
 | `UI.md` | 画面、操作、ノード表示仕様 |
 | `DataModel.md` | YAML と内部データモデル |
+| `LayoutDesign.md` | ノード配置、座標系、描画、性能方針 |
 | `development_environment_setup.md` | macOS 開発環境構築手順 |
 | `development_environment_options.md` | 開発環境・技術選定メモ |
 
@@ -55,7 +56,7 @@ USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の
 - 親ノード削除時の配下全削除と削除確認
 - YAML のブラウザダウンロード保存
 - YAML からの読み込み
-- 最終保存ソフトウェアバージョンの記録と旧版 YAML の変換
+- 最終保存ソフトウェアバージョンと YAML 形式バージョンの分離記録、旧形式 YAML の変換
 - ズーム、パン
 - エクスポートメニューからの USDM 表ダウンロード
 - エクスポート時の理由未入力警告
@@ -66,7 +67,9 @@ UI 自動テストは、初期段階では Core 層の単体テストと手動�
 
 ノード位置は保存せず、自動整列・自動配置で再現する。接続線はベジェ曲線とし、YAML の保存はブラウザダウンロードとして行う。理由は任意だが、USDM 表などのファイルエクスポート時には未入力を警告する。Google Drive 連携とユーザーによる配色変更は将来対応とする。
 
-YAML の `version` には最終保存時のソフトウェアバージョンを記録する。古いファイル形式はバージョン別の読み取り用クラスで現在の内部モデルへ変換し、保存時には現在のバージョンへ更新する。
+YAML の `version` には最終保存時の Application Version、`format_version` には YAML 構造の形式バージョンを記録する。古いファイル形式は `format_version` 別の読み取り用クラスで現在の内部モデルへ変換し、保存時にはそれぞれの現在値へ更新する。`format_version` がない既存形式は形式バージョン1、`view` 対応形式は形式バージョン2として扱う。
+
+`view` 状態の永続化を初めて導入するリリースでは Application Version の Minor を上げる。具体的な番号はリリース計画で決定する。
 
 ## 開発方針
 
