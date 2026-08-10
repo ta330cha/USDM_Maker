@@ -435,7 +435,7 @@ Issue 番号は本書では確定しない。
 
 ### 17.1 実装と設計資料の不一致
 
-- 設計資料は各採番範囲の上限を65535件としているが、`UsdmIdAllocator` と `UsdmDocumentValidator` は255件、3桁固定のままである。`UsdmYamlSerializer` の ID 判定も3桁セグメントだけを対象としている。
+- 設計資料が定義する各採番範囲65535件、3〜5桁セグメントのID規則は `UsdmIdRules`、`UsdmIdAllocator`、`UsdmDocumentValidator`、`UsdmYamlSerializer` へ反映済みである。
 - 設計資料は自動レイアウトを定義しているが、現行コードに `AutoLayoutService` またはレイアウトエンジンは存在しない。
 - 現行画面のノード座標と接続線は `Home.razor` に固定値で記載され、自動計算されていない。
 - UI 設計は無限スクロール相当のキャンバスを要求しているが、現行 SVG は `1100px × 700px` の固定サイズである。
