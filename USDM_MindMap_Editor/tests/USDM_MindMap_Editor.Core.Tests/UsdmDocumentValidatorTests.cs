@@ -1,4 +1,5 @@
 using USDM_MindMap_Editor.Core.Validation;
+using USDM_MindMap_Editor.Core.Models;
 
 namespace USDM_MindMap_Editor.Core.Tests;
 
@@ -34,5 +35,29 @@ public sealed class UsdmDocumentValidatorTests
         var document = TestDocumentFactory.Create();
         document.Specifications[0].RelatedRequirementIds.Add("001-001");
         Assert.IsTrue(_validator.Validate(document).Errors.Any(x => x.Code == "specification.related.parent"));
+    }
+
+    [TestMethod]
+    public void AcceptsFiveDigitIdsUpTo65535()
+    {
+        var document = new UsdmDocument
+        {
+            Backgrounds = [new() { Id = "65535", Text = "背景" }],
+            Requirements =
+            [
+                new() { Id = "65535", Request = "上位要求", ParentBackgroundId = "65535" },
+                new() { Id = "65535-65535", Request = "下位要求", ParentRequirementId = "65535" }
+            ],
+            Specifications = [new() { Id = "65535-65535-65535", Specification = "仕様", ParentRequirementId = "65535-65535" }]
+        };
+        Assert.IsTrue(_validator.Validate(document).IsValid);
+    }
+
+    [TestMethod]
+    public void RejectsIdsAbove65535()
+    {
+        var document = TestDocumentFactory.Create();
+        document.Backgrounds[0].Id = "65536";
+        Assert.IsTrue(_validator.Validate(document).Errors.Any(x => x.Code == "background.id.invalid"));
     }
 }

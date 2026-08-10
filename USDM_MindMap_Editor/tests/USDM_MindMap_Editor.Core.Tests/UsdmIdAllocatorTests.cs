@@ -27,12 +27,22 @@ public sealed class UsdmIdAllocatorTests
     }
 
     [TestMethod]
-    public void ThrowsAfter255Ids()
+    public void Allows65535IdsAndThrowsAfterLimit()
     {
         var document = new UsdmDocument
         {
-            Backgrounds = Enumerable.Range(1, 255).Select(x => new BackgroundItem { Id = $"{x:000}", Text = "背景" }).ToList()
+            Backgrounds = Enumerable.Range(1, 65_535).Select(x => new BackgroundItem { Id = x <= 999 ? $"{x:000}" : x.ToString(), Text = "背景" }).ToList()
         };
         Assert.ThrowsExactly<InvalidOperationException>(() => _allocator.NextBackgroundId(document));
+    }
+
+    [TestMethod]
+    public void FormatsValuesAbove999WithoutLeadingZeroes()
+    {
+        var document = new UsdmDocument { Backgrounds = [new() { Id = "001", Text = "背景" }] };
+        for (var value = 2; value <= 999; value++)
+            document.Backgrounds.Add(new() { Id = $"{value:000}", Text = "背景" });
+
+        Assert.AreEqual("1000", _allocator.NextBackgroundId(document));
     }
 }

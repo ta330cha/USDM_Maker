@@ -1,4 +1,5 @@
 using USDM_MindMap_Editor.Core.Models;
+using USDM_MindMap_Editor.Core.Ids;
 using USDM_MindMap_Editor.Core.Validation;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -133,8 +134,7 @@ public sealed class UsdmYamlSerializer
             base.Emit(eventInfo, emitter);
         }
 
-        private static bool IsIdentifier(string value) =>
-            value.Split('-').All(part => part.Length == 3 && part.All(char.IsAsciiDigit));
+        private static bool IsIdentifier(string value) => UsdmIdRules.IsValidId(value, value.Count(x => x == '-') + 1);
 
         private static bool IsSemanticVersion(string value) =>
             System.Version.TryParse(value, out _) && value.Count(x => x == '.') == 2;

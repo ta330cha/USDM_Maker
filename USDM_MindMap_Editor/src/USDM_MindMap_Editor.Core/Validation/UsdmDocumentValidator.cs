@@ -1,9 +1,9 @@
-using System.Text.RegularExpressions;
+using USDM_MindMap_Editor.Core.Ids;
 using USDM_MindMap_Editor.Core.Models;
 
 namespace USDM_MindMap_Editor.Core.Validation;
 
-public sealed partial class UsdmDocumentValidator
+public sealed class UsdmDocumentValidator
 {
     public ValidationResult Validate(UsdmDocument document, bool requireCurrentVersion = true)
     {
@@ -25,7 +25,7 @@ public sealed partial class UsdmDocumentValidator
         ValidateDuplicates(document.Backgrounds.Select(x => x.Id), "background.id.duplicate", result);
         foreach (var item in document.Backgrounds)
         {
-            if (!ThreeDigitId().IsMatch(item.Id)) result.Add("background.id.invalid", "背景IDは001～255の3桁で指定してください。", item.Id);
+            if (!UsdmIdRules.IsValidId(item.Id, 1)) result.Add("background.id.invalid", "背景IDは001～65535で指定してください。", item.Id);
             if (string.IsNullOrWhiteSpace(item.Text)) result.Add("background.text.required", "背景本文は必須です。", item.Id);
         }
     }
@@ -52,12 +52,12 @@ public sealed partial class UsdmDocumentValidator
 
             if (hasBackground)
             {
-                if (!ThreeDigitId().IsMatch(item.Id)) result.Add("requirement.id.invalid", "上位要求IDは001～255の3桁で指定してください。", item.Id);
+                if (!UsdmIdRules.IsValidId(item.Id, 1)) result.Add("requirement.id.invalid", "上位要求IDは001～65535で指定してください。", item.Id);
                 if (!backgroundIds.Contains(item.ParentBackgroundId!)) result.Add("requirement.parent.missing", "親背景が存在しません。", item.Id);
             }
             else
             {
-                if (!LowerRequirementId().IsMatch(item.Id)) result.Add("requirement.id.invalid", "下位要求IDの形式が不正です。", item.Id);
+                if (!UsdmIdRules.IsValidId(item.Id, 2)) result.Add("requirement.id.invalid", "下位要求IDの形式が不正です。", item.Id);
                 if (!topIds.Contains(item.ParentRequirementId!)) result.Add("requirement.parent.missing", "親上位要求が存在しません。", item.Id);
                 if (!item.Id.StartsWith(item.ParentRequirementId + "-", StringComparison.Ordinal)) result.Add("requirement.id.parent_mismatch", "下位要求IDと親IDが一致しません。", item.Id);
             }
@@ -74,7 +74,7 @@ public sealed partial class UsdmDocumentValidator
         foreach (var item in document.Specifications)
         {
             if (string.IsNullOrWhiteSpace(item.Specification)) result.Add("specification.text.required", "仕様本文は必須です。", item.Id);
-            if (!SpecificationId().IsMatch(item.Id)) result.Add("specification.id.invalid", "仕様IDの形式が不正です。", item.Id);
+            if (!UsdmIdRules.IsValidId(item.Id, 3)) result.Add("specification.id.invalid", "仕様IDの形式が不正です。", item.Id);
             if (!lowerIds.Contains(item.ParentRequirementId)) result.Add("specification.parent.missing", "親下位要求が存在しません。", item.Id);
             if (!item.Id.StartsWith(item.ParentRequirementId + "-", StringComparison.Ordinal)) result.Add("specification.id.parent_mismatch", "仕様IDと親IDが一致しません。", item.Id);
             if (item.RelatedRequirementIds.Count != item.RelatedRequirementIds.Distinct(StringComparer.Ordinal).Count())
@@ -92,7 +92,7 @@ public sealed partial class UsdmDocumentValidator
 
     private static void ValidateLimit(int count, string label, ValidationResult result)
     {
-        if (count > 255) result.Add("count.limit", $"{label}は255件までです。");
+        if (count > UsdmIdRules.MaximumSegment) result.Add("count.limit", $"{label}は{UsdmIdRules.MaximumSegment}件までです。");
     }
 
     private static void ValidateDuplicates(IEnumerable<string> ids, string code, ValidationResult result)
@@ -101,10 +101,4 @@ public sealed partial class UsdmDocumentValidator
             result.Add(code, $"ID {duplicate.Key} が重複しています。", duplicate.Key);
     }
 
-    [GeneratedRegex("^(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])$", RegexOptions.CultureInvariant)]
-    private static partial Regex ThreeDigitId();
-    [GeneratedRegex("^(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])-(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])$", RegexOptions.CultureInvariant)]
-    private static partial Regex LowerRequirementId();
-    [GeneratedRegex("^(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])-(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])-(?!000)(?:00[1-9]|0[1-9]\\d|1\\d{2}|2[0-4]\\d|25[0-5])$", RegexOptions.CultureInvariant)]
-    private static partial Regex SpecificationId();
 }

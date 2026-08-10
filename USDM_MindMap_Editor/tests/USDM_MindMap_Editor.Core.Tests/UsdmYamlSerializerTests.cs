@@ -50,4 +50,26 @@ public sealed class UsdmYamlSerializerTests
         var yaml = _serializer.Serialize(TestDocumentFactory.Create()).Replace("version: \"0.1.0\"", "version: \"9.0.0\"", StringComparison.Ordinal);
         Assert.ThrowsExactly<UsdmValidationException>(() => _serializer.Deserialize(yaml));
     }
+
+    [TestMethod]
+    public void QuotesFiveDigitIdentifiers()
+    {
+        var document = TestDocumentFactory.Create();
+        document.Backgrounds[0].Id = "1000";
+        document.Requirements[0].Id = "1000";
+        document.Requirements[0].ParentBackgroundId = "1000";
+        document.Requirements[1].Id = "1000-1000";
+        document.Requirements[1].ParentRequirementId = "1000";
+        document.Requirements[2].Id = "1000-1001";
+        document.Requirements[2].ParentRequirementId = "1000";
+        document.Specifications[0].Id = "1000-1000-1000";
+        document.Specifications[0].ParentRequirementId = "1000-1000";
+        document.Specifications[0].RelatedRequirementIds = ["1000-1001"];
+
+        var yaml = _serializer.Serialize(document);
+        StringAssert.Contains(yaml, "id: \"1000\"");
+        StringAssert.Contains(yaml, "id: \"1000-1000-1000\"");
+        StringAssert.Contains(yaml, "parent_requirement_id: \"1000-1000\"");
+        Assert.HasCount(1, _serializer.Deserialize(yaml).Specifications);
+    }
 }

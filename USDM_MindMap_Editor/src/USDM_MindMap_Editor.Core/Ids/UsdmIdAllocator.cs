@@ -11,9 +11,9 @@ public sealed class UsdmIdAllocator
 
     private static string Next(IEnumerable<string> existingIds, string? prefix)
     {
-        var used = existingIds.Select(x => x.Split('-')[^1]).Select(x => int.TryParse(x, out var value) ? value : 0).Where(x => x is >= 1 and <= 255).ToHashSet();
-        for (var candidate = 1; candidate <= 255; candidate++)
+        var used = existingIds.Select(x => x.Split('-')[^1]).Select(x => int.TryParse(x, out var value) ? value : 0).Where(x => x is >= 1 and <= UsdmIdRules.MaximumSegment).ToHashSet();
+        for (var candidate = 1; candidate <= UsdmIdRules.MaximumSegment; candidate++)
             if (!used.Contains(candidate)) return prefix is null ? $"{candidate:000}" : $"{prefix}-{candidate:000}";
-        throw new InvalidOperationException("採番可能なIDがありません（上限255件）。");
+        throw new InvalidOperationException($"採番可能なIDがありません（上限{UsdmIdRules.MaximumSegment}件）。");
     }
 }
