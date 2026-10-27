@@ -1,0 +1,130 @@
+@implements IAsyncDisposable
+@using USDM_MindMap_Editor.Core.Layout
+@using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.Web.State
+@inject IJSRuntime JS
+
+<dialog @ref="_element" class="node-input-dialog" aria-labelledby="node-dialog-title">
+    <form @onsubmit="SubmitAsync" @onsubmit:preventDefault novalidate>
+        <h2 id="node-dialog-title">@Title</h2>
+        @if (ParentLabel is not null)
+        {
+            <p class="parent-label">追加先：@ParentLabel</p>
+        }
+        <p class="input-hint">IDは保存時に自動採番されます。</p>
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <p class="input-error" role="alert">@ErrorMessage</p>
+        }
+        <label for="node-input-text">@TextLabel <span class="required-label">（必須）</span></label>
+        <textarea id="node-input-text" @bind="_text" @bind:event="oninput" rows="5" aria-required="true" autofocus></textarea>
+        @if (Kind is LayoutNodeKind.TopLevelRequirement or LayoutNodeKind.LowerLevelRequirement)
+        {
+            <label for="node-input-reason">理由 <span class="input-hint">（任意）</span></label>
+            <textarea id="node-input-reason" @bind="_reason" @bind:event="oninput" rows="4"></textarea>
+        }
+        @if (Kind == LayoutNodeKind.Specification)
+        {
+            <fieldset class="related-requirements">
+                <legend>関連する下位要求（任意、複数選択）</legend>
+                @if (RelatedRequirements.Count == 0)
+                {
+                    <p class="input-hint">所属先以外の下位要求はありません。</p>
+                }
+                @foreach (var requirement in RelatedRequirements)
+                {
+                    <label @key="requirement.Id" class="related-option">
+                        <input type="checkbox" checked="@_relatedIds.Contains(requirement.Id)"
+                               @onchange="args => SetRelated(requirement.Id, args.Value is true)" />
+                        <span>@requirement.Id：@requirement.Request</span>
+                    </label>
+                }
+            </fieldset>
+        }
+        <div class="dialog-actions">
+            <button type="button" disabled="@_submitting" @onclick="CancelAsync">キャンセル</button>
+            <button type="submit" class="save-node" disabled="@_submitting">保存</button>
+        </div>
+    </form>
+</dialog>
+
+@code {
+    [Parameter] public LayoutNodeKind Kind { get; set; }
+    [Parameter] public string? ParentLabel { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public IReadOnlyList<RequirementNode> RelatedRequirements { get; set; } = [];
+    [Parameter] public EventCallback<NodeCreationInput> OnSave { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private string _text = "";
+    private string _reason = "";
+    private readonly HashSet<string> _relatedIds = new(StringComparer.Ordinal);
+    private bool _submitting;
+    private ElementReference _element;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<NodeInputDialog>? _reference;
+
+    private string Title => Kind switch
+    {
+        LayoutNodeKind.Background => "背景を追加",
+        LayoutNodeKind.TopLevelRequirement => "上位要求を追加",
+        LayoutNodeKind.LowerLevelRequirement => "下位要求を追加",
+        _ => "仕様を追加"
+    };
+
+    private string TextLabel => Kind switch
+    {
+        LayoutNodeKind.Background => "背景",
+        LayoutNodeKind.Specification => "仕様",
+        _ => "要求"
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/nodeInputDialog.js");
+        _reference = DotNetObjectReference.Create(this);
+        await _module.InvokeVoidAsync("showNodeDialog", _element, _reference);
+    }
+
+    private void SetRelated(string id, bool selected)
+    {
+        if (selected) _relatedIds.Add(id);
+        else _relatedIds.Remove(id);
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_submitting) return;
+        _submitting = true;
+        try
+        {
+            await OnSave.InvokeAsync(new(_text, _reason.Length == 0 ? null : _reason, _relatedIds.ToArray()));
+        }
+        finally { _submitting = false; }
+    }
+
+    [JSInvokable]
+    public Task CancelFromBrowser() => CancelAsync();
+
+    private Task CancelAsync() => _submitting ? Task.CompletedTask : OnCancel.InvokeAsync();
+
+    public async Task CloseAsync()
+    {
+        if (_module is not null) await _module.InvokeVoidAsync("closeNodeDialog", _element);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await CloseAsync();
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+        _reference?.Dispose();
+    }
+}

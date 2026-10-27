@@ -1,0 +1,18 @@
+.node-input-dialog { width: min(36rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow: auto; border: 1px solid #94a3b8; border-radius: .75rem; padding: 1.5rem; color: #172033; box-shadow: 0 20px 60px rgb(15 23 42 / 25%); }
+.node-input-dialog::backdrop { background: rgb(15 23 42 / 35%); }
+h2 { margin: 0 0 .75rem; font-size: 1.25rem; }
+.parent-label { margin: 0 0 .5rem; overflow-wrap: anywhere; }
+.input-hint, .required-label { font-size: .85rem; color: #475569; }
+form > label { display: block; margin-top: 1rem; font-weight: 600; }
+textarea { display: block; width: 100%; box-sizing: border-box; margin-top: .35rem; padding: .6rem; border: 1px solid #64748b; border-radius: .35rem; resize: vertical; }
+textarea:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.input-error { color: #991b1b; background: #fef2f2; border-left: 3px solid #dc2626; padding: .6rem; white-space: pre-wrap; }
+.related-requirements { margin-top: 1rem; max-height: 12rem; overflow: auto; }
+legend { font-size: .95rem; font-weight: 600; }
+.related-option { display: flex; align-items: baseline; gap: .5rem; margin: .4rem 0; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1.5rem; }
+button { border: 1px solid #94a3b8; border-radius: .4rem; padding: .5rem 1rem; background: white; color: #172033; }
+button:hover { background: #e2e8f0; }
+.save-node { background: #1d4ed8; border-color: #1d4ed8; color: white; }
+.save-node:hover { background: #1e40af; }
+button:disabled { opacity: .6; }
