@@ -7,15 +7,15 @@ namespace USDM_MindMap_Editor.Core.Tests;
 public static class ConnectionScenarioFactory
 {
     public static IReadOnlyList<string> Names { get; } =
-        ["single", "multiple", "upward", "four-level", "multiple-backgrounds", "long-text", "long-expanded"];
+        ["single", "multiple", "deep-first-subtree", "four-level", "multiple-backgrounds", "long-text", "long-expanded"];
 
     public static UsdmDocument Create(string name)
     {
         if (!Names.Contains(name)) throw new ArgumentException($"Unknown scenario: {name}", nameof(name));
         var document = new UsdmDocument { Title = name };
         var backgroundCount = name == "multiple-backgrounds" ? 3 : 1;
-        var childCount = name is "multiple" or "upward" ? 7 : name == "multiple-backgrounds" ? 2 : 1;
-        var fourLevels = name is "four-level" or "multiple-backgrounds" or "long-text" or "long-expanded";
+        var childCount = name == "multiple" ? 7 : name == "deep-first-subtree" ? 3 : name == "multiple-backgrounds" ? 2 : 1;
+        var fourLevels = name is "four-level" or "multiple-backgrounds" or "long-text" or "long-expanded" or "deep-first-subtree";
         var longText = name is "long-text" or "long-expanded";
         var upperNumber = 0;
         for (var backgroundNumber = 1; backgroundNumber <= backgroundCount; backgroundNumber++)
@@ -36,8 +36,8 @@ public static class ConnectionScenarioFactory
                     Reason = longText ? Text("理由", 18) : "利用者が手順を理解できるため",
                     ParentBackgroundId = backgroundId
                 });
-                if (!fourLevels) continue;
-                var lowerCount = name == "multiple-backgrounds" ? 2 : 1;
+                if (!fourLevels || (name == "deep-first-subtree" && childNumber > 1)) continue;
+                var lowerCount = name is "multiple-backgrounds" or "deep-first-subtree" ? 2 : 1;
                 for (var lowerNumber = 1; lowerNumber <= lowerCount; lowerNumber++)
                 {
                     var lowerId = $"{upperId}-{lowerNumber:D3}";
@@ -48,19 +48,18 @@ public static class ConnectionScenarioFactory
                         Reason = longText ? Text("理由", 11) : "誤った操作を防ぐため",
                         ParentRequirementId = upperId
                     });
-                    document.Specifications.Add(new()
+                    var specificationCount = name == "deep-first-subtree" ? 2 : 1;
+                    for (var specificationNumber = 1; specificationNumber <= specificationCount; specificationNumber++)
                     {
-                        Id = $"{lowerId}-001",
-                        Specification = longText ? Text("仕様", 8) : "確認結果を画面に表示する",
-                        ParentRequirementId = lowerId
-                    });
+                        document.Specifications.Add(new()
+                        {
+                            Id = $"{lowerId}-{specificationNumber:D3}",
+                            Specification = longText ? Text("仕様", 8) : "確認結果を画面に表示する",
+                            ParentRequirementId = lowerId
+                        });
+                    }
                 }
             }
-        }
-        if (name == "upward")
-        {
-            document.Requirements[0].Request = Text("上側の長い要求", 5);
-            document.Requirements[^1].Request = Text("下側の要求", 3);
         }
         if (name == "long-expanded")
             foreach (var requirement in document.Requirements)

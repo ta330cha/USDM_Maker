@@ -4,7 +4,7 @@ public sealed record LayoutSettings
 {
     public const double DefaultNodeWidth = 280;
     public const double DefaultSiblingGap = 32;
-    public const double DefaultLevelGap = 96;
+    public const double DefaultParentChildVerticalGap = 96;
     public const double DefaultCanvasMargin = 96;
     public const double DefaultLineHeight = 22;
     public const double DefaultHorizontalPadding = 16;
@@ -18,10 +18,11 @@ public sealed record LayoutSettings
     public const double DefaultMinimumMeasuredDifference = 8;
 
     public double SiblingGap { get; init; } = DefaultSiblingGap;
-    public double LevelGap { get; init; } = DefaultLevelGap;
+    public double ParentChildVerticalGap { get; init; } = DefaultParentChildVerticalGap;
     public double CanvasMargin { get; init; } = DefaultCanvasMargin;
     // Initial visual tuning values; distances still adapt to the current rectangles.
     public double ConnectionBendRatio { get; init; } = 0.5;
+    // Minimum drawing padding for the SVG stroke, independent of curve distances.
     public double ConnectionClearance { get; init; } = 8;
     public double NodeWidth { get; init; } = DefaultNodeWidth;
     public double LineHeight { get; init; } = DefaultLineHeight;

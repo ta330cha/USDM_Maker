@@ -7,9 +7,8 @@ public sealed class AutoLayoutService : ILayoutEngine
 {
     private sealed record TreeItem(LayoutNode Node, List<TreeItem> Children)
     {
-        public double Height { get; set; }
-        public double NodeTop { get; set; }
-        public double ChildrenTop { get; set; }
+        public LayoutRect SubtreeBounds { get; set; }
+        public LayoutPoint OffsetFromParent { get; set; }
         public List<LayoutEdge> Connections { get; } = [];
     }
 
@@ -22,18 +21,19 @@ public sealed class AutoLayoutService : ILayoutEngine
         var placed = new List<LayoutNode>(roots.Count);
         var edges = new List<LayoutEdge>();
         var cursorY = settings.CanvasMargin;
+        var maxRight = settings.CanvasMargin;
+        var maxBottom = settings.CanvasMargin;
+        var padding = Math.Max(settings.CanvasMargin, settings.ConnectionClearance);
 
         foreach (var root in roots)
         {
             MeasureSubtree(root, settings);
-            Place(root, settings.CanvasMargin, cursorY, settings, placed, edges);
-            cursorY += root.Height + settings.SiblingGap;
+            Place(root, settings.CanvasMargin, cursorY, placed, edges);
+            maxRight = Math.Max(maxRight, settings.CanvasMargin + root.SubtreeBounds.Right + padding);
+            maxBottom = Math.Max(maxBottom, cursorY + root.SubtreeBounds.Bottom + padding);
+            cursorY += root.SubtreeBounds.Bottom + settings.SiblingGap;
         }
 
-        var drawingBounds = placed.Select(x => x.Bounds).Concat(edges.Select(x => x.Bounds)).ToArray();
-        var padding = Math.Max(settings.CanvasMargin, settings.ConnectionClearance);
-        var maxRight = drawingBounds.Length == 0 ? settings.CanvasMargin : drawingBounds.Max(x => x.Right) + padding;
-        var maxBottom = drawingBounds.Length == 0 ? settings.CanvasMargin : drawingBounds.Max(x => x.Bottom) + padding;
         return new LayoutResult
         {
             Nodes = placed,
@@ -113,37 +113,44 @@ public sealed class AutoLayoutService : ILayoutEngine
     private static void MeasureSubtree(TreeItem item, LayoutSettings settings)
     {
         foreach (var child in item.Children) MeasureSubtree(child, settings);
-        var childrenHeight = item.Children.Sum(child => child.Height)
-            + settings.SiblingGap * Math.Max(0, item.Children.Count - 1);
-        var contentHeight = Math.Max(item.Node.Size.Height, childrenHeight);
-        item.NodeTop = (contentHeight - item.Node.Size.Height) / 2;
-        item.ChildrenTop = (contentHeight - childrenHeight) / 2;
-        item.Height = contentHeight;
-        var parent = new LayoutRect(0, item.NodeTop, item.Node.Size.Width, item.Node.Size.Height);
-        var childY = item.ChildrenTop;
+        var parent = new LayoutRect(0, 0, item.Node.Size.Width, item.Node.Size.Height);
+        item.SubtreeBounds = parent;
+        var childX = parent.Width * 3 / 4;
+        var childY = parent.Bottom + settings.ParentChildVerticalGap;
         foreach (var child in item.Children)
         {
-            var childRect = new LayoutRect(parent.Right + settings.LevelGap, childY + child.NodeTop,
-                child.Node.Size.Width, child.Node.Size.Height);
+            child.OffsetFromParent = new(childX, childY);
+            var childRect = new LayoutRect(childX, childY, child.Node.Size.Width, child.Node.Size.Height);
             var edge = ConnectionGeometry.Create(item.Node.Key, parent, child.Node.Key, childRect, settings);
             item.Connections.Add(edge);
-            item.Height = Math.Max(item.Height, edge.Bounds.Bottom);
-            childY += child.Height + settings.SiblingGap;
+            // Reuse the measured child range; do not walk its descendants again.
+            // Include the incoming connection in this sibling's occupied range.
+            var occupied = Union(child.SubtreeBounds with
+            {
+                X = childX + child.SubtreeBounds.X,
+                Y = childY + child.SubtreeBounds.Y
+            }, edge.Bounds);
+            item.SubtreeBounds = Union(item.SubtreeBounds, occupied);
+            childY = occupied.Bottom + settings.SiblingGap;
         }
     }
 
-    private static void Place(TreeItem item, double x, double y, LayoutSettings settings,
+    private static LayoutRect Union(LayoutRect first, LayoutRect second)
+    {
+        var left = Math.Min(first.X, second.X);
+        var top = Math.Min(first.Y, second.Y);
+        return new(left, top, Math.Max(first.Right, second.Right) - left, Math.Max(first.Bottom, second.Bottom) - top);
+    }
+
+    private static void Place(TreeItem item, double x, double y,
         List<LayoutNode> placed, List<LayoutEdge> edges)
     {
-        var nodeY = y + item.NodeTop;
-        var node = item.Node with { Bounds = new LayoutRect(x, nodeY, item.Node.Size.Width, item.Node.Size.Height) };
+        var node = item.Node with { Bounds = new LayoutRect(x, y, item.Node.Size.Width, item.Node.Size.Height) };
         placed.Add(node);
         edges.AddRange(item.Connections.Select(edge => edge.Translate(x, y)));
-        var childY = y + item.ChildrenTop;
         foreach (var child in item.Children)
         {
-            Place(child, node.Bounds.Right + settings.LevelGap, childY, settings, placed, edges);
-            childY += child.Height + settings.SiblingGap;
+            Place(child, x + child.OffsetFromParent.X, y + child.OffsetFromParent.Y, placed, edges);
         }
     }
 }

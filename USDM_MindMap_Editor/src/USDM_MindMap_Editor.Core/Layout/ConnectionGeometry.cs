@@ -6,31 +6,20 @@ public static class ConnectionGeometry
     {
         var start = parent.BottomCenter;
         var end = child.LeftCenter;
-        var gap = child.X - parent.Right;
-        if (gap <= 0) throw new ArgumentException("接続線には親子間の正の階層間隔が必要です。");
-        var clearance = Math.Min(settings.ConnectionClearance, gap / 4);
-        var incoming = Math.Clamp(gap * settings.ConnectionBendRatio, clearance, gap - clearance);
-        var outgoing = Math.Max(clearance, gap * settings.ConnectionBendRatio);
-        var edge = new LayoutEdge(parentKey, childKey, start, end,
-            new(start.X, start.Y + outgoing), new(end.X - incoming, end.Y));
+        var horizontalDistance = end.X - start.X;
+        var verticalDistance = end.Y - start.Y;
+        if (!double.IsFinite(horizontalDistance) || horizontalDistance <= 0 ||
+            !double.IsFinite(verticalDistance) || verticalDistance <= 0 || child.Y < parent.Bottom)
+            throw new ArgumentException("接続先は親の下側かつ下辺中央より右側に配置してください。");
+        if (!double.IsFinite(settings.ConnectionBendRatio) || settings.ConnectionBendRatio <= 0 || settings.ConnectionBendRatio > 1)
+            throw new ArgumentOutOfRangeException(nameof(settings), "曲線の距離係数は0より大きく1以下にしてください。");
 
-        // X is monotonic. Until the curve clears the parent's right side, keep Y
-        // below its bottom. For an upward child, solve the required first control
-        // distance analytically at that exit time instead of using a fixed bend.
-        var low = 0.0;
-        var high = 1.0;
-        var exitX = parent.Right + clearance;
-        for (var i = 0; i < 48; i++)
-        {
-            var t = (low + high) / 2;
-            if (edge.PointAt(t).X < exitX) low = t;
-            else high = t;
-        }
-        var exitTime = high;
-        var u = 1 - exitTime;
-        var rise = Math.Max(0, start.Y - end.Y);
-        outgoing = Math.Max(outgoing,
-            (clearance + rise * exitTime * exitTime * (3 - 2 * exitTime)) / (3 * exitTime * u * u));
-        return edge with { ControlPoint1 = new(start.X, start.Y + outgoing) };
+        // Ordered controls make both coordinates monotonic. The curve stays below
+        // the parent and left of the child/sibling subtrees, even when their
+        // horizontal projections overlap the parent rectangle.
+        var outgoing = verticalDistance * settings.ConnectionBendRatio;
+        var incoming = horizontalDistance * settings.ConnectionBendRatio;
+        return new LayoutEdge(parentKey, childKey, start, end,
+            new(start.X, start.Y + outgoing), new(end.X - incoming, end.Y));
     }
 }

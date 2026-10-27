@@ -30,7 +30,7 @@ public sealed record LayoutEdge(string ParentId, string ChildId, LayoutPoint Sta
     }
 
     // The controls can lie well outside the curve. Include actual derivative extrema,
-    // not the control polygon, so upward connections do not create excessive whitespace.
+    // not the control polygon, to avoid excessive whitespace in occupied ranges.
     public LayoutRect Bounds
     {
         get

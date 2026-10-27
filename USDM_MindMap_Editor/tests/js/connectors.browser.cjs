@@ -4,11 +4,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const baseUrl = process.env.CONNECTOR_TEST_URL || 'http://127.0.0.1:5189';
-const artifactDir = path.resolve(__dirname, '../../artifacts/connection-lines');
-const scenarios = ['single', 'multiple', 'upward', 'four-level', 'multiple-backgrounds', 'long-text', 'long-expanded'];
+const artifactDir = path.resolve(__dirname, '../../artifacts/indented-layout');
+const scenarios = ['single', 'multiple', 'deep-first-subtree', 'four-level', 'multiple-backgrounds', 'long-text', 'long-expanded'];
 
 // Compare SVG endpoints with real HTML borders in screen coordinates, including
-// the common zoom/pan transform. Also sample the curve against every actual node.
+// the common zoom/pan transform. Derive the layout tree from actual rendered paths
+// and verify downward indentation, subtree spacing, and curve/node separation.
 function inspectConnections() {
     const errors = [];
     const nodes = [...document.querySelectorAll('.node')];
@@ -16,18 +17,98 @@ function inspectConnections() {
     if (!svg || nodes.length === 0) return { errors: ['No rendered nodes'], nodes: 0 };
     const bounds = nodes.map(node => ({ key: node.id.slice(5), rect: node.getBoundingClientRect() }));
     const paths = [...svg.querySelectorAll('path')];
+    const worldMatrix = svg.getScreenCTM();
     const expectedZoom = parseFloat(document.querySelector('.zoom-status').textContent) / 100;
-    if (Math.abs(svg.getScreenCTM().a - expectedZoom) > .001) errors.push('Zoom transform was lost during layout');
+    if (Math.abs(worldMatrix.a - expectedZoom) > .001) errors.push('Zoom transform was lost during layout');
     const near = (actual, expected) => Math.abs(actual - expected) < .3;
+    const localNear = (actual, expected) => Math.abs(actual - expected) < .1;
+    const layoutBounds = new Map(bounds.map(({ key, rect }) => [key, {
+        left: (rect.left - worldMatrix.e) / worldMatrix.a,
+        top: (rect.top - worldMatrix.f) / worldMatrix.d,
+        right: (rect.right - worldMatrix.e) / worldMatrix.a,
+        bottom: (rect.bottom - worldMatrix.f) / worldMatrix.d,
+        width: rect.width / worldMatrix.a
+    }]));
+    const children = new Map();
+    const hasParent = new Set();
     for (const curve of paths) {
-        const parent = bounds.find(n => n.key === curve.dataset.parent).rect;
-        const child = bounds.find(n => n.key === curve.dataset.child).rect;
+        const parentKey = curve.dataset.parent;
+        const childKey = curve.dataset.child;
+        if (!layoutBounds.has(parentKey) || !layoutBounds.has(childKey)) {
+            errors.push('Connection references a missing node');
+            continue;
+        }
+        if (hasParent.has(childKey)) errors.push('Node has multiple parent connections: ' + childKey);
+        hasParent.add(childKey);
+        if (!children.has(parentKey)) children.set(parentKey, []);
+        children.get(parentKey).push(childKey);
+    }
+    const compareIds = (left, right) => {
+        const a = left.split(':')[1].split('-').map(Number);
+        const b = right.split(':')[1].split('-').map(Number);
+        for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
+        return a.length - b.length;
+    };
+    const subtreeKeys = key => {
+        const keys = new Set([key]);
+        for (const child of children.get(key) || []) for (const descendant of subtreeKeys(child)) keys.add(descendant);
+        return keys;
+    };
+    const subtreeBottom = key => {
+        const keys = subtreeKeys(key);
+        let bottom = Math.max(...[...keys].map(k => layoutBounds.get(k).bottom));
+        // Include the incoming curve as well as all internal descendant curves.
+        for (const curve of paths) {
+            if (!keys.has(curve.dataset.child)) continue;
+            const box = curve.getBBox();
+            bottom = Math.max(bottom, box.y + box.height);
+        }
+        return bottom;
+    };
+    for (const [parentKey, childKeys] of children) {
+        const parent = layoutBounds.get(parentKey);
+        childKeys.sort(compareIds);
+        for (const [index, childKey] of childKeys.entries()) {
+            const child = layoutBounds.get(childKey);
+            if (!localNear(child.left, parent.left + parent.width * .75)) errors.push('Child indentation: ' + childKey);
+            if (index === 0 && child.top < parent.bottom + 96 - .1) errors.push('First child vertical gap: ' + childKey);
+            if (index > 0 && child.top < subtreeBottom(childKeys[index - 1]) + 32 - .1) errors.push('Sibling overlaps preceding subtree: ' + childKey);
+        }
+    }
+    const roots = bounds.map(n => n.key).filter(key => !hasParent.has(key)).sort(compareIds);
+    for (const [index, key] of roots.entries()) {
+        const root = layoutBounds.get(key);
+        if (!localNear(root.left, 96)) errors.push('Background left alignment: ' + key);
+        if (index === 0 && !localNear(root.top, 96)) errors.push('First background top margin');
+        if (index > 0 && root.top < subtreeBottom(roots[index - 1]) + 32 - .1) errors.push('Background overlaps preceding subtree: ' + key);
+    }
+    const rectangles = [...layoutBounds.entries()];
+    for (let i = 0; i < rectangles.length; i++) {
+        for (let j = i + 1; j < rectangles.length; j++) {
+            const [aKey, a] = rectangles[i];
+            const [bKey, b] = rectangles[j];
+            if (Math.min(a.right, b.right) > Math.max(a.left, b.left) + .1
+                && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top) + .1) errors.push('Nodes overlap: ' + aKey + ', ' + bKey);
+        }
+    }
+    for (const curve of paths) {
+        const parent = bounds.find(n => n.key === curve.dataset.parent)?.rect;
+        const child = bounds.find(n => n.key === curve.dataset.child)?.rect;
+        if (!parent || !child) continue;
         const matrix = curve.getScreenCTM();
         const length = curve.getTotalLength();
         const start = curve.getPointAtLength(0).matrixTransform(matrix);
         const end = curve.getPointAtLength(length).matrixTransform(matrix);
         if (!near(start.x, parent.x + parent.width / 2) || !near(start.y, parent.bottom)) errors.push('Parent anchor: ' + curve.dataset.parent);
         if (!near(end.x, child.left) || !near(end.y, child.y + child.height / 2)) errors.push('Child anchor: ' + curve.dataset.child);
+        const coordinates = curve.getAttribute('d').match(/[-+]?(?:\d*\.)?\d+(?:e[-+]?\d+)?/gi)?.map(Number);
+        if (!coordinates || coordinates.length !== 8) errors.push('Expected a single cubic curve');
+        else {
+            const [sx, sy, c1x, c1y, c2x, c2y, ex, ey] = coordinates;
+            if (!localNear(c1x, sx) || c1y <= sy || c1y > ey + .1) errors.push('Downward outgoing control point');
+            if (!localNear(c2y, ey) || c2x >= ex || c2x < sx - .1) errors.push('Rightward incoming control point');
+            if (ex <= sx || ey <= sy) errors.push('Connection must progress down and right');
+        }
         const box = curve.getBBox();
         if (box.x < -0.1 || box.y < -0.1 || box.x + box.width + 1 > svg.width.baseVal.value
             || box.y + box.height + 1 > svg.height.baseVal.value) errors.push('Curve clipped by SVG bounds');
@@ -132,7 +213,7 @@ async function verify(page, label) {
             assert.ok(Math.abs(await requirement.evaluate(n => n.getBoundingClientRect().height * 4) - originalHeight) < .1);
         }
         assert.deepEqual(errors, [], 'Browser errors');
-        const report = { browser: browser.version(), viewport: '1700x1100', checks: results, errors };
+        const report = { layout: 'downward-indented', browser: browser.version(), viewport: '1700x1100', checks: results, errors };
         await fs.writeFile(path.join(artifactDir, 'results.json'), JSON.stringify(report, null, 2) + '\n');
         console.log(JSON.stringify({ browser: report.browser, checks: results.length, scenarios: scenarios.length, errors, artifacts: artifactDir }, null, 2));
     } finally {
