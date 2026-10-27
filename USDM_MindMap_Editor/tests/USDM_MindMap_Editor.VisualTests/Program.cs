@@ -1,5 +1,6 @@
 using Microsoft.Extensions.FileProviders;
 using USDM_MindMap_Editor.Core.Layout;
+using USDM_MindMap_Editor.Core.Editing;
 using USDM_MindMap_Editor.VisualTests;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSingleton<AutoLayoutService>();
+builder.Services.AddSingleton<NodeCreationService>();
 var app = builder.Build();
 
 // Serve the production assets directly so visual checks exercise the same CSS and JS.

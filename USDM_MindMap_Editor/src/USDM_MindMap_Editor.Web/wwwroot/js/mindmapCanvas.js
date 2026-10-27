@@ -1,6 +1,6 @@
 const canvases = new WeakMap();
 
-export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, initialPanY = 0, minZoom = .25, maxZoom = 2, zoomStep = .1) {
+export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, initialPanY = 0, minZoom = .25, maxZoom = 2, zoomStep = .1, hitHeight = 4, dragTolerance = 4) {
     detachCanvas(root);
     const world = root.querySelector('.mindmap-world');
     if (!world) return;
@@ -14,6 +14,10 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     let syncTimer;
     let measurementFrame;
     let disposed = false;
+    let additionGesture;
+    let additionPending = false;
+    let additionDialogOpen = false;
+    let additionRequestVersion = 0;
     const events = new AbortController();
     const pendingMeasurements = new Map();
     const reportedSizes = new Map();
@@ -31,7 +35,34 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
 
     const apply = () => {
         world.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+        world.style.setProperty('--child-add-height', `${hitHeight / zoom}px`);
         if (status) status.textContent = `${Math.round(zoom * 100)}%`;
+    };
+
+    const inAdditionBand = (node, x, y) => {
+        const rect = node.getBoundingClientRect();
+        return node.isConnected !== false && x >= rect.left && x <= rect.right
+            && y >= rect.bottom - hitHeight / 2 && y <= rect.bottom + hitHeight / 2;
+    };
+
+    const clearAdditionGesture = () => {
+        const pointerId = additionGesture?.pointerId;
+        additionGesture = undefined;
+        if (pointerId !== undefined && root.hasPointerCapture(pointerId)) root.releasePointerCapture(pointerId);
+    };
+
+    const requestChildAddition = async key => {
+        if (disposed || additionPending || additionDialogOpen) return;
+        additionPending = true;
+        const version = ++additionRequestVersion;
+        try {
+            const opened = await dotnet.invokeMethodAsync('RequestChildAddition', key);
+            if (disposed || version !== additionRequestVersion) return;
+            additionPending = false;
+            if (opened === true) additionDialogOpen = true;
+        } catch {
+            if (!disposed && version === additionRequestVersion) additionPending = false;
+        }
     };
 
     // borderBoxSize uses untransformed CSS pixels, including fractional border sizes.
@@ -104,6 +135,24 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     }, { passive: false, signal: events.signal });
 
     root.addEventListener('pointerdown', event => {
+        const region = event.target.closest?.('.child-add-region');
+        if (region) {
+            event.stopPropagation();
+            if (event.button !== 0 || event.isPrimary === false) return;
+            event.preventDefault();
+            dragging = false;
+            if (additionGesture || additionPending || additionDialogOpen || region.disabled) return;
+            const node = region.closest('.node');
+            if (!node || !inAdditionBand(node, event.clientX, event.clientY)) return;
+            region.focus({ preventScroll: true });
+            additionGesture = {
+                pointerId: event.pointerId, node, key: region.dataset.parentKey,
+                startX: event.clientX, startY: event.clientY, canceled: false
+            };
+            root.setPointerCapture(event.pointerId);
+            return;
+        }
+        if (additionGesture || additionPending || additionDialogOpen) return;
         if (event.button !== 0 || event.target.closest('.node')) return;
         event.preventDefault();
         dragging = true;
@@ -112,6 +161,13 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         root.setPointerCapture(event.pointerId);
     }, { signal: events.signal });
     root.addEventListener('pointermove', event => {
+        if (additionGesture?.pointerId === event.pointerId) {
+            event.stopPropagation();
+            event.preventDefault();
+            if (Math.hypot(event.clientX - additionGesture.startX, event.clientY - additionGesture.startY) > dragTolerance)
+                additionGesture.canceled = true;
+            return;
+        }
         if (!dragging) return;
         panX += event.clientX - lastX;
         panY += event.clientY - lastY;
@@ -120,8 +176,36 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         apply();
         scheduleSync();
     }, { signal: events.signal });
-    root.addEventListener('pointerup', () => dragging = false, { signal: events.signal });
-    root.addEventListener('pointercancel', () => dragging = false, { signal: events.signal });
+    root.addEventListener('pointerup', event => {
+        if (additionGesture?.pointerId === event.pointerId) {
+            event.stopPropagation();
+            event.preventDefault();
+            const gesture = additionGesture;
+            clearAdditionGesture();
+            if (event.button === 0 && !gesture.canceled
+                && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <= dragTolerance
+                && inAdditionBand(gesture.node, event.clientX, event.clientY)) void requestChildAddition(gesture.key);
+            return;
+        }
+        dragging = false;
+    }, { signal: events.signal });
+    root.addEventListener('pointercancel', event => {
+        if (additionGesture?.pointerId === event.pointerId) clearAdditionGesture();
+        dragging = false;
+    }, { signal: events.signal });
+    root.addEventListener('lostpointercapture', event => {
+        if (additionGesture?.pointerId === event.pointerId) additionGesture = undefined;
+        dragging = false;
+    }, { signal: events.signal });
+    root.addEventListener('click', event => {
+        const region = event.target.closest?.('.child-add-region');
+        if (!region) return;
+        event.stopPropagation();
+        event.preventDefault();
+        // Native button Enter/Space activation has detail=0. Pointer activation was
+        // already handled at pointerup, including drag/cancel and border hit checks.
+        if (event.detail === 0 && !region.disabled) void requestChildAddition(region.dataset.parentKey);
+    }, { signal: events.signal });
 
     // toggle does not bubble; capture survives Blazor updates to details elements.
     root.addEventListener('toggle', event => {
@@ -131,6 +215,14 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     }, { capture: true, signal: events.signal });
 
     canvases.set(root, {
+        setAdditionDialogOpen(open) {
+            additionDialogOpen = open;
+            additionPending = false;
+            dragging = false;
+            clearAdditionGesture();
+            // Closing also invalidates a late interop response from the prior dialog.
+            if (!open) additionRequestVersion++;
+        },
         reset(defaultZoom) {
             clearTimeout(syncTimer);
             zoom = defaultZoom;
@@ -141,6 +233,8 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         },
         dispose() {
             disposed = true;
+            additionRequestVersion++;
+            clearAdditionGesture();
             clearTimeout(syncTimer);
             if (measurementFrame) cancelAnimationFrame(measurementFrame);
             events.abort();
@@ -161,4 +255,8 @@ export function resetCanvas(root, defaultZoom = 1) {
 export function detachCanvas(root) {
     canvases.get(root)?.dispose();
     canvases.delete(root);
+}
+
+export function setAdditionDialogOpen(root, open) {
+    canvases.get(root)?.setAdditionDialogOpen(open);
 }

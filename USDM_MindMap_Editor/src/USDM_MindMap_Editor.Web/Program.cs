@@ -1,5 +1,6 @@
 using USDM_MindMap_Editor.Web.Components;
 using USDM_MindMap_Editor.Core.Layout;
+using USDM_MindMap_Editor.Core.Editing;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddSingleton<AutoLayoutService>();
+builder.Services.AddSingleton<NodeCreationService>();
 
 var app = builder.Build();
 

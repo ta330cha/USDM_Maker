@@ -4,8 +4,12 @@
 @using System.Globalization
 @using USDM_MindMap_Editor.Core.Layout
 @using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.Core.Editing
+@using USDM_MindMap_Editor.Core.Ids
 @using USDM_MindMap_Editor.Web.State
+@using USDM_MindMap_Editor.Web.Components.Editor
 @inject AutoLayoutService LayoutService
+@inject NodeCreationService NodeCreation
 @inject IJSRuntime JS
 
 <PageTitle>USDM MindMap Editor</PageTitle>
@@ -17,14 +21,15 @@
             <button type="button">新規</button>
             <button type="button">開く</button>
             <button type="button">保存</button>
-            <button type="button">背景追加</button>
+            <button type="button" @onclick="OpenBackgroundAsync">背景追加</button>
             <button type="button">検索</button>
             <button type="button">エクスポート</button>
             <button type="button" @onclick="ResetZoom">ズームリセット</button>
         </div>
     </header>
 
-    <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス">
+    <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス"
+          style="--child-add-height:@Px(_uiSettings.ChildAddHitHeight / _canvas.Zoom)">
         <div class="mindmap-world">
           <div class="mindmap-content" style="@WorldStyle">
             <svg class="connectors" width="@_layout.CanvasBounds.Width" height="@_layout.CanvasBounds.Height" aria-hidden="true">
@@ -42,19 +47,31 @@
                     {
                         <details open="@IsReasonExpanded(node.Key)"><summary>理由</summary><p>@node.Reason</p></details>
                     }
+                    @if (ChildKind(node.Kind) is { } childKind)
+                    {
+                        <button type="button" class="child-add-region" data-parent-key="@node.Key"
+                                title="@AdditionLabel(childKind)" aria-label="@AdditionLabel(childKind)"></button>
+                    }
                 </article>
             }
           </div>
         </div>
     </main>
 
-    <footer class="editor-status">準備完了 ・ version 0.1.0 ・ <span class="zoom-status">100%</span></footer>
+    <footer class="editor-status"><span role="status">@_statusText</span> ・ version 0.1.0 ・ <span class="zoom-status">100%</span></footer>
+    @if (_additionTarget is { } target)
+    {
+        <NodeInputDialog @key="target" @ref="_nodeDialog" Kind="target.Kind" ParentLabel="@target.ParentLabel" ErrorMessage="@_additionError"
+                         RelatedRequirements="_relatedRequirements"
+                         OnSave="input => SaveNodeAsync(target, input)" OnCancel="() => CloseAdditionAsync(target)" />
+    }
 </div>
 
 @code {
     [Parameter] public UsdmDocument? Document { get; set; }
 
     private readonly LayoutSettings _settings = new();
+    private readonly WebUiSettings _uiSettings = new();
     private readonly CanvasState _canvas = new();
     private UsdmDocument _document = null!;
     private LayoutResult _layout = null!;
@@ -63,6 +80,20 @@
     private ElementReference _canvasElement;
     private IJSObjectReference? _canvasModule;
     private DotNetObjectReference<Home>? _dotNetReference;
+    // Reference identity also makes every dialog invocation a distinct Blazor key.
+    private sealed class AdditionTarget(LayoutNodeKind kind, string? parentId = null, string? parentLabel = null)
+    {
+        public LayoutNodeKind Kind { get; } = kind;
+        public string? ParentId { get; } = parentId;
+        public string? ParentLabel { get; } = parentLabel;
+    }
+    private AdditionTarget? _additionTarget;
+    private NodeInputDialog? _nodeDialog;
+    private bool _closingAddition;
+    private string? _additionError;
+    private IReadOnlyList<RequirementNode> _relatedRequirements = [];
+    private bool _savingNode;
+    private string _statusText = "準備完了";
 
     protected override void OnInitialized()
     {
@@ -77,8 +108,100 @@
         _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
         _dotNetReference = DotNetObjectReference.Create(this);
         await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
-            _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep);
+            _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep,
+            _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance);
     }
+
+    [JSInvokable]
+    public async Task<bool> RequestChildAddition(string parentKey)
+    {
+        if (_disposed || _additionTarget is not null || _closingAddition) return false;
+        var parent = _layout.Nodes.FirstOrDefault(node => node.Key == parentKey);
+        if (parent is null || ChildKind(parent.Kind) is not { } childKind) return false;
+        await OpenAdditionAsync(new(childKind, parent.Id, $"{NodeLabel(parent.Kind)} {parent.Id}"));
+        return true;
+    }
+
+    private Task OpenBackgroundAsync() => OpenAdditionAsync(new(LayoutNodeKind.Background));
+
+    private async Task OpenAdditionAsync(AdditionTarget target)
+    {
+        if (_disposed || _additionTarget is not null || _closingAddition) return;
+        _additionTarget = target;
+        _additionError = null;
+        _relatedRequirements = target.Kind == LayoutNodeKind.Specification
+            ? _document.Requirements.Where(node => node.ParentRequirementId is not null && node.Id != target.ParentId)
+                .OrderBy(node => node.Id, UsdmIdRules.NumericSegmentComparer).ToArray()
+            : [];
+        if (_canvasModule is not null)
+            await _canvasModule.InvokeVoidAsync("setAdditionDialogOpen", _canvasElement, true);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveNodeAsync(AdditionTarget target, NodeCreationInput input)
+    {
+        if (_disposed || !ReferenceEquals(_additionTarget, target) || _savingNode || _closingAddition) return;
+        _savingNode = true;
+        string id;
+        try
+        {
+            id = target.Kind switch
+            {
+                LayoutNodeKind.Background => NodeCreation.AddBackground(_document, input.Text),
+                LayoutNodeKind.TopLevelRequirement => NodeCreation.AddTopLevelRequirement(_document, target.ParentId!, input.Text, input.Reason),
+                LayoutNodeKind.LowerLevelRequirement => NodeCreation.AddLowerLevelRequirement(_document, target.ParentId!, input.Text, input.Reason),
+                LayoutNodeKind.Specification => NodeCreation.AddSpecification(_document, target.ParentId!, input.Text, input.RelatedRequirementIds),
+                _ => throw new InvalidOperationException("追加するノードの種別が不正です。")
+            };
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            _additionError = error.Message;
+            _savingNode = false;
+            return;
+        }
+        // Keep view state and existing measurements. ResizeObserver measures only
+        // the newly inserted node; the current engine then updates affected positions.
+        _layout = CalculateLayout();
+        _statusText = $"{NodeLabel(target.Kind)} {id} を追加しました";
+        _savingNode = false;
+        await CloseAdditionAsync(target);
+    }
+
+    private async Task CloseAdditionAsync(AdditionTarget target)
+    {
+        if (!ReferenceEquals(_additionTarget, target) || _savingNode || _closingAddition) return;
+        _closingAddition = true;
+        // Close while the element still exists, so native modal state and opener
+        // focus are restored before Blazor removes it from the render tree.
+        if (_nodeDialog is not null) await _nodeDialog.CloseAsync();
+        _additionTarget = null;
+        _nodeDialog = null;
+        _additionError = null;
+        _relatedRequirements = [];
+        if (_canvasModule is not null)
+            await _canvasModule.InvokeVoidAsync("setAdditionDialogOpen", _canvasElement, false);
+        _closingAddition = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static LayoutNodeKind? ChildKind(LayoutNodeKind parentKind) => parentKind switch
+    {
+        LayoutNodeKind.Background => LayoutNodeKind.TopLevelRequirement,
+        LayoutNodeKind.TopLevelRequirement => LayoutNodeKind.LowerLevelRequirement,
+        LayoutNodeKind.LowerLevelRequirement => LayoutNodeKind.Specification,
+        _ => null
+    };
+
+    private static string NodeLabel(LayoutNodeKind kind) => kind switch
+    {
+        LayoutNodeKind.Background => "背景",
+        LayoutNodeKind.TopLevelRequirement => "上位要求",
+        LayoutNodeKind.LowerLevelRequirement => "下位要求",
+        _ => "仕様"
+    };
+
+    private static string AdditionLabel(LayoutNodeKind kind) => $"{NodeLabel(kind)}を追加";
 
     [JSInvokable]
     public async Task NodeSizesChanged(MeasuredNodeSize[] measurements)

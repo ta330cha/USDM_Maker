@@ -34,6 +34,22 @@ PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node tests/js/connectors.brow
 
 `artifacts/indented-layout/` にスクリーンショットと `results.json` を出力します。旧横方向配置の確認結果 `artifacts/connection-lines/` とは別に保存します。これらの生成物は既存の `.gitignore` により除外されます。
 
+## 下辺の子追加領域・入力ダイアログの回帰確認
+
+同じホストを起動した状態で、次を実行します。
+
+```bash
+PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node tests/js/childInsertion.browser.cjs
+```
+
+背景から上位要求、上位要求から下位要求、下位要求から仕様を実際に追加し、採番・親接続・再配置・実DOM境界への接続を検証します。要求の理由は空欄で保存できること、仕様の関連下位要求を選択できること、所属先を関連先に選べないこと、ツールバーから背景を追加できることも確認します。
+
+必須入力の空白エラー、キャンセル、連打による重複防止、Enter / Space、右クリック・本文・理由・接続線からの誤追加防止、追加領域からのドラッグ抑止を検証します。ポインターキャンセルだけはPlaywrightに実デバイスのキャンセル操作がないため、実際の押下／解放の間に合成`pointercancel`イベントを使用します。
+
+ダイアログ内ではTab / Shift+Tabを複数周操作し、フォーカスが外へ抜けないことを確認します。キャンセル・保存・Escapeの各終了方法で、起点の親ノード下辺へフォーカスが戻ること、背景追加の保存後はツールバーへ戻ることも検証します。
+
+25%・100%・200%で追加領域が画面上の4 CSS pxを維持し、下辺の内外1.5pxで反応、内外3pxでは反応しないことを確認します。パン後と長い理由の展開・折りたたみ後にも位置・寸法・接続線を再確認します。`artifacts/child-insertion/` に画面画像と `results.json` を保存し、過去の配置試験結果とは区別します。
+
 関連する自動テスト:
 
 ```bash
