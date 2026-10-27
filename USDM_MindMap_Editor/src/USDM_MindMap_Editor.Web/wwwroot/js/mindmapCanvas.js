@@ -17,6 +17,10 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     let additionGesture;
     let suppressedPointerClick;
     let hoveredAdditionRegion;
+    let keyboardFocusedRegion;
+    let inputModality = 'keyboard';
+    let additionOrigin;
+    let windowActive = true;
     let additionPending = false;
     let additionDialogOpen = false;
     let additionRequestVersion = 0;
@@ -42,6 +46,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         world.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
         world.style.setProperty('--child-add-height', `${hitHeight / zoom}px`);
         world.style.setProperty('--child-add-width-ratio', `${widthRatio}`);
+        world.style.setProperty('--child-add-focus-width', `${2 / zoom}px`);
         if (status) status.textContent = `${Math.round(zoom * 100)}%`;
     };
 
@@ -68,13 +73,50 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         return region && inAdditionEllipse(node, event.clientX, event.clientY) ? { node, region } : null;
     };
 
+    const presentationActive = () => windowActive && globalThis.document?.hidden !== true
+        && globalThis.document?.visibilityState !== 'hidden';
+
     const setAdditionHover = region => {
+        if (additionPending || additionDialogOpen || !presentationActive()) region = null;
         if (hoveredAdditionRegion === region) return;
-        hoveredAdditionRegion?.classList.remove('is-hovered');
+        if (hoveredAdditionRegion) {
+            hoveredAdditionRegion.classList.remove('is-hovered');
+            hoveredAdditionRegion.removeAttribute('title');
+        }
         hoveredAdditionRegion = region;
-        region?.classList.add('is-hovered');
+        if (region) {
+            region.classList.add('is-hovered');
+            region.title = region.dataset.tooltip ?? region.getAttribute('aria-label') ?? '';
+        }
         root.classList.toggle('child-add-hover', Boolean(region));
         root.title = region?.title ?? canvasTitle;
+    };
+
+    const setKeyboardFocus = region => {
+        if (additionPending || additionDialogOpen || !presentationActive()) region = null;
+        if (keyboardFocusedRegion === region) return;
+        keyboardFocusedRegion?.classList.remove('is-keyboard-focused');
+        keyboardFocusedRegion = region;
+        region?.classList.add('is-keyboard-focused');
+    };
+
+    const restoreKeyboardFocus = () => {
+        const active = globalThis.document?.activeElement;
+        const region = active?.closest?.('.child-add-region');
+        setKeyboardFocus(inputModality === 'keyboard' && region && root.contains(region) ? region : null);
+    };
+
+    const finishAdditionPresentation = () => {
+        // Dialog typing never changes this frozen origin. Home restores DOM focus
+        // before sending the close notification, so restore only its visual mode.
+        const origin = additionOrigin;
+        additionOrigin = undefined;
+        setAdditionHover(null);
+        if (origin) {
+            inputModality = origin.modality;
+            setKeyboardFocus(origin.modality === 'keyboard' && globalThis.document?.activeElement === origin.region
+                ? origin.region : null);
+        } else restoreKeyboardFocus();
     };
 
     const consumeAdditionEvent = event => {
@@ -88,17 +130,24 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         if (pointerId !== undefined && root.hasPointerCapture(pointerId)) root.releasePointerCapture(pointerId);
     };
 
-    const requestChildAddition = async key => {
+    const requestChildAddition = async (key, region, modality) => {
         if (disposed || additionPending || additionDialogOpen) return;
+        additionOrigin = { region, modality };
         additionPending = true;
+        setAdditionHover(null);
+        setKeyboardFocus(null);
         const version = ++additionRequestVersion;
         try {
             const opened = await dotnet.invokeMethodAsync('RequestChildAddition', key);
             if (disposed || version !== additionRequestVersion) return;
             additionPending = false;
             if (opened === true) additionDialogOpen = true;
+            else finishAdditionPresentation();
         } catch {
-            if (!disposed && version === additionRequestVersion) additionPending = false;
+            if (!disposed && version === additionRequestVersion) {
+                additionPending = false;
+                finishAdditionPresentation();
+            }
         }
     };
 
@@ -156,7 +205,44 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             }
         }
     });
-    mutations.observe(world, { childList: true, subtree: true });
+    mutations.observe(world, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+
+    // Track keyboard navigation outside the canvas too, so Tab from the toolbar
+    // can reveal the focus ring. Dialog input is deliberately ignored.
+    globalThis.document?.addEventListener('keydown', event => {
+        if (additionPending || additionDialogOpen || event.altKey || event.ctrlKey || event.metaKey
+            || !['Tab', 'Enter', ' '].includes(event.key)) return;
+        inputModality = 'keyboard';
+        setAdditionHover(null);
+        restoreKeyboardFocus();
+    }, { capture: true, signal: events.signal });
+    globalThis.document?.addEventListener('pointerdown', () => {
+        if (additionPending || additionDialogOpen) return;
+        inputModality = 'pointer';
+        setKeyboardFocus(null);
+        setAdditionHover(null);
+    }, { capture: true, signal: events.signal });
+    root.addEventListener('focusin', restoreKeyboardFocus, { signal: events.signal });
+    root.addEventListener('focusout', () => setKeyboardFocus(null), { signal: events.signal });
+
+    const deactivatePresentation = () => {
+        setAdditionHover(null);
+        setKeyboardFocus(null);
+        clearAdditionGesture();
+        dragging = false;
+    };
+    globalThis.window?.addEventListener('blur', () => {
+        windowActive = false;
+        deactivatePresentation();
+    }, { signal: events.signal });
+    globalThis.window?.addEventListener('focus', () => {
+        windowActive = true;
+        restoreKeyboardFocus();
+    }, { signal: events.signal });
+    globalThis.document?.addEventListener('visibilitychange', () => {
+        if (!presentationActive()) deactivatePresentation();
+        else restoreKeyboardFocus();
+    }, { signal: events.signal });
 
     root.addEventListener('wheel', event => {
         event.preventDefault();
@@ -185,6 +271,8 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             dragging = false;
             const { node, region } = addition;
             if (additionGesture || additionPending || additionDialogOpen || region.disabled) return;
+            inputModality = 'pointer';
+            setKeyboardFocus(null);
             region.focus({ preventScroll: true });
             additionGesture = {
                 pointerId: event.pointerId, node, region, key: region.dataset.parentKey,
@@ -225,27 +313,28 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             consumeAdditionEvent(event);
             const gesture = additionGesture;
             const inside = inAdditionEllipse(gesture.node, event.clientX, event.clientY);
-            setAdditionHover(inside ? gesture.region : null);
+            // Only a fresh pointermove may enable hover after an operation.
+            setAdditionHover(null);
             clearAdditionGesture();
             if (event.button === 0 && !gesture.canceled
                 && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) <= dragTolerance
-                && inside) void requestChildAddition(gesture.key);
+                && inside) void requestChildAddition(gesture.key, gesture.region, 'pointer');
             return;
         }
         dragging = false;
     }, { capture: true, signal: events.signal });
     root.addEventListener('pointercancel', event => {
+        setAdditionHover(null);
         if (additionGesture?.pointerId === event.pointerId) {
             consumeAdditionEvent(event);
-            setAdditionHover(null);
             clearAdditionGesture();
         }
         dragging = false;
     }, { capture: true, signal: events.signal });
     root.addEventListener('lostpointercapture', event => {
+        setAdditionHover(null);
         if (additionGesture?.pointerId === event.pointerId) {
             consumeAdditionEvent(event);
-            setAdditionHover(null);
             additionGesture = undefined;
         }
         dragging = false;
@@ -257,7 +346,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             const region = event.target.closest?.('.child-add-region');
             if (region) {
                 consumeAdditionEvent(event);
-                if (!region.disabled) void requestChildAddition(region.dataset.parentKey);
+                if (!region.disabled) void requestChildAddition(region.dataset.parentKey, region, 'keyboard');
             }
             return;
         }
@@ -287,9 +376,13 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             additionPending = false;
             dragging = false;
             setAdditionHover(null);
+            setKeyboardFocus(null);
             clearAdditionGesture();
             // Closing also invalidates a late interop response from the prior dialog.
-            if (!open) additionRequestVersion++;
+            if (!open) {
+                additionRequestVersion++;
+                finishAdditionPresentation();
+            }
         },
         reset(defaultZoom) {
             clearTimeout(syncTimer);
@@ -305,6 +398,8 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             clearAdditionGesture();
             suppressedPointerClick = undefined;
             setAdditionHover(null);
+            setKeyboardFocus(null);
+            additionOrigin = undefined;
             clearTimeout(syncTimer);
             if (measurementFrame) cancelAnimationFrame(measurementFrame);
             events.abort();

@@ -30,7 +30,7 @@ function inspectLayoutAndRegions() {
         const name = key.startsWith('background:') ? '上位要求を追加'
             : key.split(':')[1].includes('-') ? '仕様を追加' : '下位要求を追加';
         if (region.dataset.parentKey !== key) errors.push('Wrong region parent: ' + key);
-        if (region.getAttribute('aria-label') !== name || region.title !== name) errors.push('Missing accessible operation name: ' + key);
+        if (region.getAttribute('aria-label') !== name || region.dataset.tooltip !== name) errors.push('Missing accessible operation name: ' + key);
         if (region.tabIndex < 0) errors.push('Child region is not keyboard focusable: ' + key);
         if (!near(hit.height, 10, .12)) errors.push('Child region must remain 10 CSS px: ' + key);
         if (!near(hit.left, rect.left + rect.width / 4) || !near(hit.right, rect.left + rect.width * .75)

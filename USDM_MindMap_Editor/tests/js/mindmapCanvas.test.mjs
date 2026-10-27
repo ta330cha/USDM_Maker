@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { attachCanvas, detachCanvas, resetCanvas, setAdditionDialogOpen } from '../../src/USDM_MindMap_Editor.Web/wwwroot/js/mindmapCanvas.js';
+import { showNodeDialog, closeNodeDialog } from '../../src/USDM_MindMap_Editor.Web/wwwroot/js/nodeInputDialog.js';
 
 // Small DOM/observer doubles exercise the public JS interop boundary without browser dependencies.
 function harness() {
@@ -13,6 +14,12 @@ function harness() {
     let fullNodeQueries = 0;
     let nodeRect = { left: 100, right: 380, top: 140, bottom: 250, width: 280, height: 110 };
     let additionResponse = () => Promise.resolve(true);
+    const document = new EventTarget();
+    const window = new EventTarget();
+    Object.assign(document, {
+        activeElement: null, visibilityState: 'visible', hidden: false,
+        elementFromPoint: (x, y) => x >= nodeRect.left && x <= nodeRect.right && y >= nodeRect.top && y <= nodeRect.bottom ? node : null
+    });
     const classes = () => {
         const values = new Set();
         return {
@@ -33,10 +40,13 @@ function harness() {
         classList: classes()
     };
     const region = {
-        dataset: { parentKey: 'requirement:001' }, disabled: false,
-        title: '下位要求を追加',
+        dataset: { parentKey: 'requirement:001', tooltip: '下位要求を追加' }, disabled: false, isConnected: true,
+        title: '',
         closest: selector => selector === '.node' ? node : selector === '.child-add-region' ? region : null,
-        focus: () => {}, classList: classes(),
+        focus: () => focus(region), classList: classes(),
+        getAttribute: name => name === 'aria-label' ? '下位要求を追加' : name === 'title' ? region.title || null : null,
+        setAttribute: (name, value) => { if (name === 'title') region.title = value; },
+        removeAttribute: name => { if (name === 'title') region.title = ''; },
         getBoundingClientRect: () => ({
             left: nodeRect.left + nodeRect.width / 4, right: nodeRect.right - nodeRect.width / 4,
             top: nodeRect.bottom - 5, bottom: nodeRect.bottom + 5,
@@ -45,7 +55,8 @@ function harness() {
     };
     const details = { open: false, closest: selector => selector === '.node' ? node : selector === 'details' ? details : null };
     const summary = {
-        closest: selector => selector === '.node' ? node : selector === 'summary' ? summary : selector === 'details' ? details : null
+        closest: selector => selector === '.node' ? node : selector === 'summary' ? summary : selector === 'details' ? details : null,
+        focus: () => focus(summary)
     };
     const style = { setProperty(name, value) { this[name] = value; } };
     const world = { style, querySelectorAll: () => { fullNodeQueries++; return [node]; }, closest: () => null };
@@ -55,6 +66,7 @@ function harness() {
         classList: classes(), title: '',
         querySelector: selector => selector === '.mindmap-world' ? world : null,
         closest: selector => selector === '.editor-shell' ? { querySelector: () => status } : null,
+        contains: element => [node, region, details, summary, world].includes(element),
         getBoundingClientRect: () => ({ left: 0, top: 0 }),
         setPointerCapture: id => capturedPointers.add(id),
         hasPointerCapture: id => capturedPointers.has(id),
@@ -74,12 +86,26 @@ function harness() {
         disconnect() { this.disconnected = true; }
     };
     globalThis.HTMLDetailsElement = class { closest() { return node; } };
-    globalThis.document = {
-        elementFromPoint: (x, y) => x >= nodeRect.left && x <= nodeRect.right && y >= nodeRect.top && y <= nodeRect.bottom ? node : null
-    };
+    globalThis.document = document;
+    globalThis.window = window;
+
+    function emit(target, type, properties = {}) {
+        const event = new Event(type, { cancelable: true });
+        for (const [key, value] of Object.entries(properties)) Object.defineProperty(event, key, { value });
+        target.dispatchEvent(event);
+        return event;
+    }
+
+    function focus(element) {
+        const previous = document.activeElement;
+        if (previous === element) return;
+        document.activeElement = element;
+        if (root.contains(previous)) emit(root, 'focusout', { target: previous, relatedTarget: element });
+        if (root.contains(element)) emit(root, 'focusin', { target: element, relatedTarget: previous });
+    }
 
     return {
-        root, world, status, calls, node, region, summary, details, capturedPointers,
+        root, world, status, calls, node, region, summary, details, capturedPointers, document, window, focus,
         attach: (...settings) => attachCanvas(root, {
             invokeMethodAsync: (method, ...args) => {
                 calls.push({ method, args });
@@ -95,8 +121,32 @@ function harness() {
             const { target = region, x = nodeRect.left + nodeRect.width / 2, y = nodeRect.bottom, ...properties } = options;
             Object.assign(event, { clientX: x, clientY: y, pointerId: 1, button: 0, isPrimary: true, ...properties });
             Object.defineProperty(event, 'target', { value: target });
+            if (type === 'pointerdown') document.dispatchEvent(event);
             root.dispatchEvent(event);
             return event;
+        },
+        key(key, options = {}) {
+            const event = emit(document, 'keydown', {
+                target: document.activeElement, key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...options
+            });
+            if (root.contains(event.target)) root.dispatchEvent(event);
+            return event;
+        },
+        windowEvent: type => emit(window, type),
+        visibility(hidden) {
+            document.hidden = hidden;
+            document.visibilityState = hidden ? 'hidden' : 'visible';
+            emit(document, 'visibilitychange');
+        },
+        dialog() {
+            const dialog = new EventTarget();
+            const input = { focus: () => focus(input), getClientRects: () => [{}] };
+            Object.assign(dialog, {
+                showModal: () => { dialog.open = true; }, close: () => { dialog.open = false; },
+                querySelector: selector => selector === 'textarea' ? input : null,
+                querySelectorAll: () => [input]
+            });
+            return { dialog, input, emit: (type, properties) => emit(dialog, type, properties) };
         },
         reasonClick(options = {}) {
             const event = this.pointer('click', { target: summary, detail: 1, ...options });
@@ -504,4 +554,196 @@ test('rejected or failed addition requests release the lock; explicit dialog sta
         h.pointer('click', { detail: 0 });
         assert.equal(h.additionCalls().length, 5);
     } finally { detachCanvas(h.root); }
+});
+
+function assertNoAdditionHover(h, message = 'stale hover must be cleared') {
+    assert.equal(h.region.classList.contains('is-hovered'), false, message);
+    assert.equal(h.root.classList.contains('child-add-hover'), false, message);
+    assert.equal(h.root.title, '', 'canvas tooltip must be cleared with hover');
+    assert.equal(h.region.title, '', 'the region must not retain a native tooltip');
+}
+
+test('an addition request clears hover and both tooltips before interop resolves and while the dialog is open', async () => {
+    const h = harness();
+    let resolveRequest;
+    h.setAdditionResponse(() => new Promise(resolve => resolveRequest = resolve));
+    h.attach();
+    try {
+        h.pointer('pointermove', { target: h.summary });
+        assert.equal(h.region.classList.contains('is-hovered'), true);
+        assert.equal(h.root.title, '下位要求を追加');
+        assert.equal(h.region.title, '下位要求を追加');
+        h.pointer('pointerdown', { target: h.summary });
+        h.pointer('pointerup', { target: h.summary });
+        assertNoAdditionHover(h, 'pending starts synchronously, before the server reply');
+        h.pointer('pointermove');
+        h.pointer('pointerenter');
+        assertNoAdditionHover(h, 'pointer events cannot restore hover while a request is pending');
+        h.key('Tab');
+        resolveRequest(true);
+        await Promise.resolve();
+        h.pointer('pointermove');
+        h.pointer('pointerenter');
+        assertNoAdditionHover(h, 'pointer events cannot restore hover under a dialog');
+        setAdditionDialogOpen(h.root, false);
+        assertNoAdditionHover(h);
+        assert.equal(h.region.classList.contains('is-keyboard-focused'), false, 'a pending pointer request keeps its original modality');
+        h.pointer('pointerenter');
+        assertNoAdditionHover(h, 'a synthetic entry caused by closing a dialog is not fresh pointer movement');
+        h.pointer('pointermove');
+        assert.equal(h.region.classList.contains('is-hovered'), true, 'fresh pointer movement can resume valid hover');
+    } finally { detachCanvas(h.root); }
+});
+
+test('pointer-started save, cancel, and Escape restore DOM focus without fill or keyboard outline after typing', async () => {
+    for (const ending of ['save', 'cancel', 'Escape']) {
+        const h = harness();
+        h.attach();
+        const dialog = h.dialog();
+        const browserCalls = [];
+        try {
+            h.pointer('pointermove');
+            h.pointer('pointerdown');
+            h.pointer('pointerup');
+            h.pointer('click', { detail: 1 });
+            assert.equal(h.document.activeElement, h.region);
+            await Promise.resolve();
+            showNodeDialog(dialog.dialog, {
+                invokeMethodAsync: method => { browserCalls.push(method); return Promise.resolve(); }
+            });
+            setAdditionDialogOpen(h.root, true);
+            assert.equal(h.document.activeElement, dialog.input);
+            for (const key of ['a', 'Tab', 'Enter', ' ']) h.key(key);
+            assertNoAdditionHover(h);
+            if (ending === 'Escape') {
+                h.key('Escape');
+                const cancel = dialog.emit('cancel');
+                assert.equal(cancel.defaultPrevented, true);
+                assert.deepEqual(browserCalls, ['CancelFromBrowser']);
+            }
+            // Home closes the modal (restoring focus) before releasing its canvas lock.
+            closeNodeDialog(dialog.dialog);
+            setAdditionDialogOpen(h.root, false);
+            assert.equal(h.document.activeElement, h.region, `${ending} must preserve opener focus`);
+            assert.equal(h.region.classList.contains('is-keyboard-focused'), false, 'dialog typing must not change pointer origin');
+            assertNoAdditionHover(h, `${ending} must not restore hover from focus or an unmoved pointer`);
+            h.region.focus();
+            assertNoAdditionHover(h, 'repeated programmatic focus is not a pointer move');
+            h.pointer('pointermove');
+            assert.equal(h.region.classList.contains('is-hovered'), true, 'the next actual pointer movement rechecks the ellipse');
+            h.pointer('pointermove', { x: 170, y: 245 });
+            assertNoAdditionHover(h, 'a bounding-box corner is still outside the ellipse');
+        } finally {
+            closeNodeDialog(dialog.dialog);
+            detachCanvas(h.root);
+        }
+    }
+});
+
+test('Tab and Shift+Tab expose a keyboard outline and repeated keyboard additions retain it without hover fill', async () => {
+    const h = harness();
+    h.attach();
+    try {
+        for (const shiftKey of [false, true]) {
+            h.focus(h.summary);
+            h.key('Tab', { shiftKey });
+            h.region.focus();
+            assert.equal(h.region.classList.contains('is-keyboard-focused'), true, 'Tab navigation must show an outline');
+            assertNoAdditionHover(h, 'keyboard focus is not filled hover');
+            for (const key of ['Enter', ' ']) {
+                h.key(key);
+                h.pointer('click', { detail: 0 });
+                await Promise.resolve();
+                const dialog = h.dialog();
+                showNodeDialog(dialog.dialog, { invokeMethodAsync: () => Promise.resolve() });
+                setAdditionDialogOpen(h.root, true);
+                h.key('a');
+                h.key('Enter');
+                closeNodeDialog(dialog.dialog);
+                setAdditionDialogOpen(h.root, false);
+                assert.equal(h.document.activeElement, h.region);
+                assert.equal(h.region.classList.contains('is-keyboard-focused'), true, 'a keyboard opener retains a visible position for the next addition');
+                assertNoAdditionHover(h);
+            }
+        }
+        assert.equal(h.additionCalls().length, 4);
+        h.key('Tab');
+        h.focus(h.summary);
+        assert.equal(h.region.classList.contains('is-keyboard-focused'), false, 'leaving the control removes its outline');
+    } finally { detachCanvas(h.root); }
+});
+
+test('window deactivation and hidden pages clear hover and do not restore it merely on reactivation', () => {
+    const h = harness();
+    h.attach();
+    try {
+        for (const deactivate of ['blur', 'hidden']) {
+            h.pointer('pointermove');
+            assert.equal(h.region.classList.contains('is-hovered'), true);
+            if (deactivate === 'blur') h.windowEvent('blur'); else h.visibility(true);
+            assertNoAdditionHover(h);
+            h.pointer('pointermove');
+            assertNoAdditionHover(h, 'inactive or hidden canvases must not become highlighted');
+            if (deactivate === 'blur') h.windowEvent('focus'); else h.visibility(false);
+            assertNoAdditionHover(h, 'activation alone must not resurrect stale coordinates');
+            h.pointer('pointermove');
+            assert.equal(h.region.classList.contains('is-hovered'), true);
+        }
+    } finally { detachCanvas(h.root); }
+});
+
+test('cancellation, exit, pan, zoom, and reflow invalidate all hover presentation until fresh geometry is checked', () => {
+    const invalidations = [
+        h => h.pointer('pointercancel'),
+        h => h.pointer('lostpointercapture'),
+        h => h.pointer('pointerleave'),
+        h => h.wheel(),
+        h => resetCanvas(h.root),
+        h => h.resize(160),
+        h => h.observers()[1].callback([]),
+        h => h.observers()[1].callback([{ type: 'attributes', attributeName: 'style', target: h.node, addedNodes: [], removedNodes: [] }]),
+        h => {
+            h.pointer('pointerdown', { target: h.world, x: 500, y: 500 });
+            h.pointer('pointermove', { target: h.world, x: 520, y: 510 });
+            h.pointer('pointerup', { target: h.world, x: 520, y: 510 });
+        }
+    ];
+    for (const invalidate of invalidations) {
+        const h = harness();
+        h.attach();
+        try {
+            h.pointer('pointermove');
+            assert.equal(h.region.classList.contains('is-hovered'), true);
+            invalidate(h);
+            assertNoAdditionHover(h);
+            h.setNodeRect({ left: 100, right: 380, top: 140, bottom: 300, width: 280, height: 160 });
+            h.pointer('pointermove', { x: 240, y: 250 });
+            assertNoAdditionHover(h, 'the old bottom center must not restore stale hover');
+            h.pointer('pointermove');
+            assert.equal(h.region.classList.contains('is-hovered'), true);
+        } finally { detachCanvas(h.root); }
+    }
+});
+
+test('detaching clears both presentation states and removes document/window listeners', () => {
+    const h = harness();
+    h.attach();
+    h.key('Tab');
+    h.region.focus();
+    assert.equal(h.region.classList.contains('is-keyboard-focused'), true);
+    h.pointer('pointermove');
+    assert.equal(h.region.classList.contains('is-hovered'), true);
+    detachCanvas(h.root);
+    assertNoAdditionHover(h);
+    assert.equal(h.region.classList.contains('is-keyboard-focused'), false);
+    h.focus(h.summary);
+    h.key('Tab');
+    h.region.focus();
+    h.pointer('pointermove');
+    h.windowEvent('blur');
+    h.windowEvent('focus');
+    h.visibility(true);
+    h.visibility(false);
+    assertNoAdditionHover(h);
+    assert.equal(h.region.classList.contains('is-keyboard-focused'), false);
 });
