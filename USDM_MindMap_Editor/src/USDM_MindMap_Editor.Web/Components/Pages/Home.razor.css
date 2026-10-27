@@ -9,11 +9,12 @@ button:hover { background: #e2e8f0; }
 .mindmap-content { position: relative; }
 .connectors { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connectors path { fill: none; stroke: #475569; stroke-width: 2; }
-.node { position: absolute; box-sizing: border-box; border: 2px solid #111827; border-radius: .75rem; padding: .8rem; box-shadow: 0 8px 18px rgb(15 23 42 / 12%); overflow-wrap: anywhere; }
+.node { --node-border-width: 2px; position: absolute; box-sizing: border-box; border: var(--node-border-width) solid #111827; border-radius: .75rem; padding: .8rem; box-shadow: 0 8px 18px rgb(15 23 42 / 12%); overflow-wrap: anywhere; }
 .node-id { font: 600 .78rem ui-monospace, monospace; }
 .node p { margin: .45rem 0; white-space: pre-wrap; }
-.child-add-region { position: absolute; left: -2px; right: -2px; bottom: -2px; height: var(--child-add-height); transform: translateY(50%); margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; touch-action: none; }
-.child-add-region:hover, .child-add-region:focus-visible { background: #2563eb; outline: none; }
+.child-add-region { position: absolute; z-index: 1; left: 50%; bottom: calc(-1 * var(--node-border-width)); width: calc((100% + 2 * var(--node-border-width)) * var(--child-add-width-ratio)); height: var(--child-add-height); transform: translate(-50%, 50%); margin: 0; padding: 0; border: 0; border-radius: 50%; clip-path: ellipse(50% 50% at 50% 50%); background: transparent; cursor: pointer; touch-action: none; }
+.child-add-region:hover, .child-add-region.is-hovered, .child-add-region:focus-visible { background: #2563eb; outline: none; }
+.mindmap-canvas.child-add-hover { cursor: pointer; }
 .background-node { background: #bfdbfe; }
 .requirement-node { background: #bbf7d0; }
 .specification-node { background: #fef08a; }

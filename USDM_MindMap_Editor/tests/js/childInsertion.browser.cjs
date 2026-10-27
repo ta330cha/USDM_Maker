@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const baseUrl = process.env.CONNECTOR_TEST_URL || 'http://127.0.0.1:5189';
-const artifactDir = path.resolve(__dirname, '../../artifacts/child-insertion');
+const artifactDir = path.resolve(__dirname, '../../artifacts/elliptical-child-insertion');
 
 function inspectLayoutAndRegions() {
     const errors = [];
@@ -32,10 +32,11 @@ function inspectLayoutAndRegions() {
         if (region.dataset.parentKey !== key) errors.push('Wrong region parent: ' + key);
         if (region.getAttribute('aria-label') !== name || region.title !== name) errors.push('Missing accessible operation name: ' + key);
         if (region.tabIndex < 0) errors.push('Child region is not keyboard focusable: ' + key);
-        if (!near(hit.height, 4, .12)) errors.push('Child region must remain 4 CSS px: ' + key);
-        if (!near(hit.left, rect.left) || !near(hit.right, rect.right)
-            || !near(hit.top, rect.bottom - 2) || !near(hit.bottom, rect.bottom + 2)) errors.push('Child region does not follow bottom border: ' + key);
-        regionDetails.push({ key, height: hit.height, top: hit.top, nodeBottom: rect.bottom });
+        if (!near(hit.height, 10, .12)) errors.push('Child region must remain 10 CSS px: ' + key);
+        if (!near(hit.left, rect.left + rect.width / 4) || !near(hit.right, rect.left + rect.width * .75)
+            || !near(hit.top, rect.bottom - 5) || !near(hit.bottom, rect.bottom + 5)) errors.push('Child ellipse does not follow bottom midpoint: ' + key);
+        if (!getComputedStyle(region).clipPath.startsWith('ellipse(')) errors.push('Region must clip its rectangular corners: ' + key);
+        regionDetails.push({ key, width: hit.width, height: hit.height, top: hit.top, nodeBottom: rect.bottom });
     }
     const paths = [...svg.querySelectorAll('path')];
     for (const curve of paths) {
@@ -159,6 +160,27 @@ async function openChild(page, key, name, offset = 0) {
     assert.equal(await dialogFor(page).count(), 1);
     assert.equal(await dialogFor(page).getAttribute('aria-labelledby'), 'node-dialog-title');
     assert.equal((await page.locator('#node-dialog-title').textContent()).trim(), name);
+}
+
+async function ellipsePoint(page, key, nx, ny) {
+    const rect = await nodeFor(page, key).boundingBox();
+    return { x: rect.x + rect.width / 2 + rect.width / 4 * nx, y: rect.y + rect.height + 5 * ny };
+}
+
+async function watchReason(page, key) {
+    await nodeFor(page, key).locator('details').evaluate(details => {
+        window.reasonChanges = [];
+        window.reasonObserver?.disconnect();
+        window.reasonObserver = new MutationObserver(records => {
+            for (const record of records) window.reasonChanges.push({ old: record.oldValue, open: details.open });
+        });
+        window.reasonObserver.observe(details, { attributes: true, attributeFilter: ['open'], attributeOldValue: true });
+    });
+}
+
+async function assertReasonUnchanged(page, key, expectedOpen, label) {
+    assert.equal(await nodeFor(page, key).locator('details').evaluate(details => details.open), expectedOpen, label);
+    assert.deepEqual(await page.evaluate(() => window.reasonChanges), [], label + ': no temporary reason state change');
 }
 
 async function setZoom(page, percentage) {
@@ -326,31 +348,118 @@ async function setZoom(page, percentage) {
         for (const zoom of [25, 100, 200]) {
             await load(page, 'single');
             await setZoom(page, zoom);
-            results.push(await verify(page, zoom + '%: screen-space 4px regions'));
+            results.push(await verify(page, zoom + '%: screen-space 10px ellipses, half parent width'));
             const currentCount = await page.locator('.node').count();
-            for (const offset of [-1.5, 1.5]) {
-                await openChild(page, background, '上位要求を追加', offset);
+            // Exact boundary points are included; test diagonals as well as all four axes.
+            for (const [nx, ny] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1], [.6, .8], [-.6, -.8]]) {
+                await reveal(page, regionFor(page, background));
+                const point = await ellipsePoint(page, background, nx, ny);
+                await page.mouse.click(point.x, point.y);
+                try { await dialogFor(page).waitFor({ timeout: 5000 }); }
+                catch (cause) { throw new Error(`${zoom}% ellipse boundary (${nx}, ${ny}) at ${JSON.stringify(point)}`, { cause }); }
                 await cancel(page);
             }
-            for (const offset of [-3, 3]) {
-                const r = await nodeFor(page, background).boundingBox();
-                await page.mouse.click(r.x + r.width / 2, r.y + r.height + offset);
-                await noDialog(page, currentCount, zoom + '% outside region ' + offset);
+            for (const [nx, ny] of [[-1.01, 0], [1.01, 0], [0, -1.02], [0, 1.02], [-.99, -.99], [.99, -.99], [-.99, .99], [.99, .99]]) {
+                const point = await ellipsePoint(page, background, nx, ny);
+                await page.mouse.click(point.x, point.y);
+                await noDialog(page, currentCount, zoom + '% outside ellipse ' + nx + ',' + ny);
             }
             const beforePan = await nodeFor(page, background).boundingBox();
             await panBy(page, 100, 60);
             const afterPan = await nodeFor(page, background).boundingBox();
             assert.ok(Math.abs(afterPan.x - beforePan.x - 100) < .1);
             assert.ok(Math.abs(afterPan.y - beforePan.y - 60) < .1);
-            results.push(await verify(page, zoom + '%: pan and 4px boundary hit testing'));
-            await openChild(page, background, '上位要求を追加', 1.5);
+            results.push(await verify(page, zoom + '%: pan, ellipse boundary and rectangular corner exclusion'));
+            await openChild(page, background, '上位要求を追加', 4);
             await cancel(page);
             const r = await nodeFor(page, background).boundingBox();
-            await page.mouse.click(r.x + r.width / 2, r.y + r.height + 3);
+            await page.mouse.click(r.x + r.width / 2, r.y + r.height + 5.1);
             await noDialog(page, currentCount, zoom + '% outside region after pan');
             await page.mouse.move(r.x + r.width / 2, r.y + r.height);
             await page.screenshot({ path: path.join(artifactDir, 'region-' + zoom + '.png') });
         }
+
+        await load(page, 'single');
+        const hoverPoint = await ellipsePoint(page, background, 0, .9);
+        await page.mouse.move(hoverPoint.x, hoverPoint.y);
+        await page.waitForFunction(() => document.querySelector('.child-add-region').classList.contains('is-hovered'));
+        for (let index = 0; index < 3; index++) await page.mouse.wheel(0, -100);
+        await page.waitForFunction(() => document.querySelector('.zoom-status').textContent === '130%');
+        assert.equal(await regionFor(page, background).evaluate(region => region.classList.contains('is-hovered')), false,
+            'Zoom must not leave a stale supplemental hover outside the fixed-height ellipse');
+        await setZoom(page, 100);
+        const dragPoint = await ellipsePoint(page, background, 0, 0);
+        await page.mouse.move(dragPoint.x, dragPoint.y);
+        await page.mouse.down();
+        await page.mouse.move(dragPoint.x + 100, dragPoint.y, { steps: 6 });
+        await page.mouse.up();
+        await noDialog(page, 2, 'Hover after canceled drag outside ellipse');
+        assert.equal(await regionFor(page, background).evaluate(region => region.classList.contains('is-hovered')), false,
+            'Canceled drag must not leave stale hover at its starting point');
+        results.push(await verify(page, 'Hover clears after zoom or dragging outside the ellipse'));
+
+        // At 25%, the upper half of the screen-space ellipse overlaps the real
+        // summary. Observe the open attribute, not just the eventual state.
+        await load(page, 'four-level');
+        await setZoom(page, 25);
+        const reasonParent = 'requirement:001';
+        const reasonNode = nodeFor(page, reasonParent);
+        const reasonSummary = reasonNode.locator('summary');
+        const reasonCount = await page.locator('.node').count();
+        await watchReason(page, reasonParent);
+        await openChild(page, reasonParent, '下位要求を追加', -4.5);
+        await assertReasonUnchanged(page, reasonParent, false, 'Ellipse overlapping summary');
+        await cancel(page);
+        results.push(await verify(page, 'Overlap: child addition wins without changing the reason even transiently'));
+
+        // Remove only the overlay's pointer hit target for this stress case, so
+        // real input reaches summary text and still exercises root capture priority.
+        await regionFor(page, reasonParent).evaluate(region => region.style.pointerEvents = 'none');
+        const summaryPoint = await ellipsePoint(page, reasonParent, 0, -.9);
+        assert.equal(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('summary'), summaryPoint), true,
+            'Stress input must actually target the reason summary');
+        await page.mouse.click(summaryPoint.x, summaryPoint.y);
+        await dialogFor(page).waitFor();
+        await assertReasonUnchanged(page, reasonParent, false, 'Direct summary target inside ellipse');
+        await cancel(page);
+        const beforeReasonDrag = await page.locator('.mindmap-world').getAttribute('style');
+        await page.mouse.move(summaryPoint.x, summaryPoint.y);
+        await page.mouse.down();
+        await page.mouse.move(summaryPoint.x + 8, summaryPoint.y, { steps: 3 });
+        await page.mouse.move(summaryPoint.x, summaryPoint.y, { steps: 3 });
+        await page.mouse.up();
+        await noDialog(page, reasonCount, 'Summary ellipse drag returns inside');
+        await assertReasonUnchanged(page, reasonParent, false, 'Dragged summary must not toggle reason');
+        await page.mouse.down();
+        await reasonSummary.dispatchEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true });
+        await page.mouse.up();
+        await noDialog(page, reasonCount, 'Canceled summary gesture');
+        await assertReasonUnchanged(page, reasonParent, false, 'Canceled summary must not toggle reason');
+        assert.equal(await page.locator('.mindmap-world').getAttribute('style'), beforeReasonDrag, 'No fallback to panning');
+        await regionFor(page, reasonParent).evaluate(region => region.style.removeProperty('pointer-events'));
+        results.push({ label: 'Direct summary target, drag-return, cancellation: no reason state mutation or pan' });
+
+        // The top rectangular corner lies over summary but outside the ellipse:
+        // it must reach the summary normally, not become a rectangular shield.
+        const corner = await ellipsePoint(page, reasonParent, .99, -.99);
+        assert.equal(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('summary'), corner), true);
+        await page.mouse.click(corner.x, corner.y);
+        await page.waitForFunction(() => document.querySelector('[id="node-requirement:001"] details').open);
+        await noDialog(page, reasonCount, 'Outside ellipse corner toggles reason');
+        await verify(page, 'Reason corner changed layout');
+        await reasonSummary.focus();
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => !document.querySelector('[id="node-requirement:001"] details').open);
+        await page.keyboard.press('Space');
+        await page.waitForFunction(() => document.querySelector('[id="node-requirement:001"] details').open);
+        await noDialog(page, reasonCount, 'Reason keyboard remains independent');
+        await verify(page, 'Expanded reason settled');
+        await watchReason(page, reasonParent);
+        await openChild(page, reasonParent, '下位要求を追加', -4);
+        await assertReasonUnchanged(page, reasonParent, true, 'Expanded reason stays expanded');
+        await cancel(page);
+        results.push(await verify(page, 'Outside corner and reason keyboard preserved; expanded reason unchanged by addition'));
+        await page.evaluate(() => window.reasonObserver.disconnect());
 
         await load(page, 'long-text');
         await setZoom(page, 25);
@@ -376,7 +485,7 @@ async function setZoom(page, percentage) {
         results.push(await verify(page, 'Long parent: insertion after reason toggles preserves layout'));
 
         assert.deepEqual(errors, [], 'Browser errors');
-        const report = { feature: 'bottom-border-child-insertion', browser: browser.version(), viewport: '1700x1100', checks: results, errors };
+        const report = { feature: 'elliptical-child-insertion', browser: browser.version(), viewport: '1700x1100', checks: results, errors };
         await fs.writeFile(path.join(artifactDir, 'results.json'), JSON.stringify(report, null, 2) + '\n');
         console.log(JSON.stringify({ browser: report.browser, checks: results.length, errors, artifacts: artifactDir }, null, 2));
     } finally { await browser.close(); }

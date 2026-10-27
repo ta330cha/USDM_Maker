@@ -29,7 +29,7 @@
     </header>
 
     <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス"
-          style="--child-add-height:@Px(_uiSettings.ChildAddHitHeight / _canvas.Zoom)">
+          style="--child-add-height:@Px(_uiSettings.ChildAddHitHeight / _canvas.Zoom);--child-add-width-ratio:@(_uiSettings.ChildAddWidthRatio.ToString(CultureInfo.InvariantCulture))">
         <div class="mindmap-world">
           <div class="mindmap-content" style="@WorldStyle">
             <svg class="connectors" width="@_layout.CanvasBounds.Width" height="@_layout.CanvasBounds.Height" aria-hidden="true">
@@ -109,7 +109,7 @@
         _dotNetReference = DotNetObjectReference.Create(this);
         await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
             _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep,
-            _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance);
+            _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance, _uiSettings.ChildAddWidthRatio);
     }
 
     [JSInvokable]
