@@ -2,10 +2,13 @@ namespace USDM_MindMap_Editor.Core.Layout;
 
 public readonly record struct NodeSize(double Width, double Height)
 {
-    public bool IsValid => Width > 0 && Height > 0;
+    public bool IsValid => double.IsFinite(Width) && double.IsFinite(Height) && Width > 0 && Height > 0;
 }
 
-public readonly record struct LayoutPoint(double X, double Y);
+public readonly record struct LayoutPoint(double X, double Y)
+{
+    public bool IsFinite => double.IsFinite(X) && double.IsFinite(Y);
+}
 
 public readonly record struct LayoutRect(double X, double Y, double Width, double Height)
 {
@@ -14,6 +17,17 @@ public readonly record struct LayoutRect(double X, double Y, double Width, doubl
     public LayoutPoint RightCenter => new(Right, Y + Height / 2);
     public LayoutPoint BottomCenter => new(X + Width / 2, Bottom);
     public LayoutPoint LeftCenter => new(X, Y + Height / 2);
+
+    public LayoutRect Translate(double x, double y) => this with { X = X + x, Y = Y + y };
+
+    public LayoutRect Inflate(double amount) => new(X - amount, Y - amount, Width + 2 * amount, Height + 2 * amount);
+
+    public LayoutRect Union(LayoutRect other)
+    {
+        var left = Math.Min(X, other.X);
+        var top = Math.Min(Y, other.Y);
+        return new(left, top, Math.Max(Right, other.Right) - left, Math.Max(Bottom, other.Bottom) - top);
+    }
 
     public bool Intersects(LayoutRect other) =>
         X < other.Right && Right > other.X && Y < other.Bottom && Bottom > other.Y;

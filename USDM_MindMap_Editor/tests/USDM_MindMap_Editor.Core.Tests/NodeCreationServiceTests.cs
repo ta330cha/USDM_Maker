@@ -40,7 +40,7 @@ public sealed class NodeCreationServiceTests
         Assert.IsNull(document.Requirements[1].Reason);
         Assert.AreEqual(lowerId, document.Specifications.Single().ParentRequirementId);
         Assert.AreEqual(specificationText, document.Specifications.Single().Specification);
-        Assert.AreEqual(2, document.FormatVersion);
+        Assert.AreEqual(DocumentFormat.Current, document.FormatVersion);
         Assert.IsTrue(new UsdmDocumentValidator().Validate(document).IsValid);
     }
 
@@ -180,7 +180,7 @@ public sealed class NodeCreationServiceTests
     }
 
     [TestMethod]
-    public void AddedNodesRoundTripWithoutPersistingLayoutAndDoNotAddRelatedEdges()
+    public void AddedNodesRoundTripWithBackgroundPositionsButWithoutDerivedGeometryOrRelatedEdges()
     {
         var document = TestDocumentFactory.Create();
         var background = _service.AddBackground(document, "追加背景");
@@ -188,10 +188,13 @@ public sealed class NodeCreationServiceTests
         var lower = _service.AddLowerLevelRequirement(document, top, "追加下位", "追加理由");
         var specification = _service.AddSpecification(document, lower, "追加仕様", ["001-002"]);
         var serializer = new UsdmYamlSerializer();
+        var initialLayout = new AutoLayoutService().Calculate(new LayoutRequest { Document = document });
+        document.View.BackgroundPositions = initialLayout.Nodes.Where(x => x.Kind == LayoutNodeKind.Background)
+            .ToDictionary(x => x.Id, x => new CanvasPosition { X = x.Bounds.X, Y = x.Bounds.Y }, StringComparer.Ordinal);
         var yaml = serializer.Serialize(document);
         var restored = serializer.Deserialize(yaml);
         var layout = new AutoLayoutService().Calculate(new LayoutRequest { Document = restored });
-        Assert.AreEqual(2, restored.FormatVersion);
+        Assert.AreEqual(DocumentFormat.Current, restored.FormatVersion);
         Assert.AreEqual(yaml, serializer.Serialize(restored));
         Assert.HasCount(restored.Backgrounds.Count + restored.Requirements.Count + restored.Specifications.Count, layout.Nodes);
         Assert.HasCount(layout.Nodes.Count - restored.Backgrounds.Count, layout.Edges);

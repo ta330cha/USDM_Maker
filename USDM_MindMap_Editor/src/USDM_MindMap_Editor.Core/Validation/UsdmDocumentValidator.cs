@@ -5,7 +5,7 @@ namespace USDM_MindMap_Editor.Core.Validation;
 
 public sealed class UsdmDocumentValidator
 {
-    public ValidationResult Validate(UsdmDocument document, bool requireCurrentVersion = true)
+    public ValidationResult Validate(UsdmDocument document, bool requireCurrentVersion = true, bool requireBackgroundPositions = false)
     {
         ArgumentNullException.ThrowIfNull(document);
         var result = new ValidationResult();
@@ -16,16 +16,16 @@ public sealed class UsdmDocumentValidator
             result.Add("version.invalid", "version は SemVer 形式で指定してください。");
 
         if (document.FormatVersion is < DocumentFormat.Legacy or > DocumentFormat.Current)
-            result.Add("format_version.unsupported", $"format_version は {DocumentFormat.Legacy} または {DocumentFormat.Current} に対応しています。 ");
+            result.Add("format_version.unsupported", $"format_version は {DocumentFormat.Legacy}〜{DocumentFormat.Current} に対応しています。");
 
         ValidateBackgrounds(document, result);
         ValidateRequirements(document, result);
         ValidateSpecifications(document, result);
-        ValidateView(document, result);
+        ValidateView(document, result, requireBackgroundPositions);
         return result;
     }
 
-    private static void ValidateView(UsdmDocument document, ValidationResult result)
+    private static void ValidateView(UsdmDocument document, ValidationResult result, bool requireBackgroundPositions)
     {
         var view = document.View ?? new DocumentViewState();
         var pan = view.Pan ?? new PanState();
@@ -37,6 +37,19 @@ public sealed class UsdmDocumentValidator
         var backgroundIds = document.Backgrounds.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
         var requirementIds = document.Requirements.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
         var specificationIds = document.Specifications.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var (id, position) in view.BackgroundPositions)
+        {
+            if (!backgroundIds.Contains(id))
+                result.Add("view.background_position.missing", "view.background_positions が存在しない背景を参照しています。", id);
+            if (position is null || !double.IsFinite(position.X) || !double.IsFinite(position.Y))
+                result.Add("view.background_position.invalid", "背景位置の x と y は有限値で指定してください。", id);
+        }
+        if (requireBackgroundPositions)
+        {
+            foreach (var id in backgroundIds)
+                if (!view.BackgroundPositions.ContainsKey(id))
+                    result.Add("view.background_position.required", "保存前に背景の配置位置を確定してください。", id);
+        }
         foreach (var (key, state) in view.Nodes)
         {
             var separator = key.IndexOf(':');

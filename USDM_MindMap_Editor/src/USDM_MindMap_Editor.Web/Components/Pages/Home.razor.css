@@ -8,7 +8,13 @@ button:not(.child-add-region):hover { background: #e2e8f0; }
 .mindmap-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .mindmap-content { position: relative; }
 .connectors { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
-.connectors path { fill: none; stroke: #475569; stroke-width: 2; }
+.connectors path { fill: none; stroke: #475569; stroke-width: var(--connection-stroke-width, 2px); pointer-events: stroke; }
+.tree-nodes { position: absolute; inset: 0; pointer-events: none; }
+.tree-nodes .node { pointer-events: auto; }
+.tree-nodes.is-dragging .node { user-select: none; }
+.tree-nodes.is-invalid-drop .background-node { outline: 3px solid #dc2626; outline-offset: 3px; }
+.mindmap-canvas.is-tree-dragging, .mindmap-canvas.is-tree-dragging .node { cursor: grabbing; }
+.mindmap-canvas.is-invalid-drop, .mindmap-canvas.is-invalid-drop .node { cursor: not-allowed; }
 .node { --node-border-width: 2px; position: absolute; box-sizing: border-box; border: var(--node-border-width) solid #111827; border-radius: .75rem; padding: .8rem; box-shadow: 0 8px 18px rgb(15 23 42 / 12%); overflow-wrap: anywhere; }
 .node-id { font: 600 .78rem ui-monospace, monospace; }
 .node p { margin: .45rem 0; white-space: pre-wrap; }
@@ -16,7 +22,7 @@ button:not(.child-add-region):hover { background: #e2e8f0; }
 .child-add-region.is-hovered { background: #2563eb; cursor: pointer; }
 .child-add-region.is-keyboard-focused:focus { box-shadow: inset 0 0 0 var(--child-add-focus-width, 2px) #1d4ed8; }
 .mindmap-canvas.child-add-hover { cursor: pointer; }
-.background-node { background: #bfdbfe; }
+.background-node { background: #bfdbfe; cursor: grab; }
 .requirement-node { background: #bbf7d0; }
 .specification-node { background: #fef08a; }
 .editor-status { padding: .4rem 1rem; border-top: 1px solid #cbd5e1; background: #f8fafc; font-size: .8rem; }

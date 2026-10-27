@@ -174,12 +174,15 @@ public sealed class ConnectionGeometryTests
     {
         var document = ConnectionScenarioFactory.Create("long-expanded");
         var serializer = new UsdmYamlSerializer();
+        var initialLayout = new AutoLayoutService().Calculate(new LayoutRequest { Document = document });
+        document.View.BackgroundPositions = initialLayout.Nodes.Where(x => x.Kind == LayoutNodeKind.Background)
+            .ToDictionary(x => x.Id, x => new CanvasPosition { X = x.Bounds.X, Y = x.Bounds.Y }, StringComparer.Ordinal);
         var before = serializer.Serialize(document);
         var expanded = document.View.Nodes.Keys.ToHashSet(StringComparer.Ordinal);
         _ = new AutoLayoutService().Calculate(new LayoutRequest { Document = document, ExpandedReasonNodeIds = expanded });
         var after = serializer.Serialize(document);
         Assert.AreEqual(before, after);
-        Assert.AreEqual(2, serializer.Deserialize(after).FormatVersion);
+        Assert.AreEqual(DocumentFormat.Current, serializer.Deserialize(after).FormatVersion);
         Assert.IsFalse(after.Contains("anchor", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(after.Contains("control_point", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(after.Contains("bounds", StringComparison.OrdinalIgnoreCase));

@@ -28,31 +28,44 @@
         </div>
     </header>
 
-    <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス"
+    <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス" tabindex="-1"
+          data-layout-revision="@_session.Revision" data-unsaved="@_session.HasUnsavedChanges.ToString().ToLowerInvariant()"
           style="--child-add-height:@Px(_uiSettings.ChildAddHitHeight / _canvas.Zoom);--child-add-width-ratio:@(_uiSettings.ChildAddWidthRatio.ToString(CultureInfo.InvariantCulture))">
         <div class="mindmap-world">
           <div class="mindmap-content" style="@WorldStyle">
-            <svg class="connectors" width="@_layout.CanvasBounds.Width" height="@_layout.CanvasBounds.Height" aria-hidden="true">
-                @foreach (var edge in _layout.Edges)
+            <svg class="connectors" width="@Number(_layout.CanvasBounds.Width)" height="@Number(_layout.CanvasBounds.Height)"
+                 style="@SvgStyle" viewBox="@SvgViewBox" aria-hidden="true">
+                @foreach (var tree in _layout.Trees)
                 {
-                    <path @key="edge.ChildId" data-parent="@edge.ParentId" data-child="@edge.ChildId" d="@PathFor(edge)" />
+                    <g @key="tree.BackgroundId" class="tree-connectors" data-background-id="@tree.BackgroundId">
+                        @foreach (var edge in tree.Edges)
+                        {
+                            <path @key="edge.ChildId" data-parent="@edge.ParentId" data-child="@edge.ChildId" d="@PathFor(edge)" />
+                        }
+                    </g>
                 }
             </svg>
-            @foreach (var node in _layout.Nodes)
+            @foreach (var tree in _layout.Trees)
             {
-                <article @key="node.Key" class="node @NodeClass(node.Kind)" id="node-@node.Key" style="@NodeStyle(node)">
-                    <span class="node-id">@node.Id</span>
-                    <p>@node.Text</p>
-                    @if (!string.IsNullOrWhiteSpace(node.Reason))
+                <div @key="tree.BackgroundId" class="tree-nodes" data-background-id="@tree.BackgroundId"
+                     data-position-x="@Number(tree.Position.X)" data-position-y="@Number(tree.Position.Y)">
+                    @foreach (var node in tree.Nodes)
                     {
-                        <details open="@IsReasonExpanded(node.Key)"><summary>理由</summary><p>@node.Reason</p></details>
+                        <article @key="node.Key" class="node @NodeClass(node.Kind)" id="node-@node.Key" style="@NodeStyle(node)">
+                            <span class="node-id">@node.Id</span>
+                            <p>@node.Text</p>
+                            @if (!string.IsNullOrWhiteSpace(node.Reason))
+                            {
+                                <details open="@IsReasonExpanded(node.Key)"><summary>理由</summary><p>@node.Reason</p></details>
+                            }
+                            @if (ChildKind(node.Kind) is { } childKind)
+                            {
+                                <button type="button" class="child-add-region" data-parent-key="@node.Key"
+                                        data-tooltip="@AdditionLabel(childKind)" aria-label="@AdditionLabel(childKind)"></button>
+                            }
+                        </article>
                     }
-                    @if (ChildKind(node.Kind) is { } childKind)
-                    {
-                        <button type="button" class="child-add-region" data-parent-key="@node.Key"
-                                data-tooltip="@AdditionLabel(childKind)" aria-label="@AdditionLabel(childKind)"></button>
-                    }
-                </article>
+                </div>
             }
           </div>
         </div>
@@ -73,19 +86,22 @@
     private readonly LayoutSettings _settings = new();
     private readonly WebUiSettings _uiSettings = new();
     private readonly CanvasState _canvas = new();
-    private UsdmDocument _document = null!;
-    private LayoutResult _layout = null!;
-    private readonly Dictionary<string, NodeSize> _measuredSizes = new(StringComparer.Ordinal);
+    private DocumentEditingSession _session = null!;
+    private UsdmDocument _document => _session.Document;
+    private LayoutResult _layout => _session.Layout;
+    private long _sentLayoutRevision;
     private bool _disposed;
     private ElementReference _canvasElement;
     private IJSObjectReference? _canvasModule;
     private DotNetObjectReference<Home>? _dotNetReference;
     // Reference identity also makes every dialog invocation a distinct Blazor key.
-    private sealed class AdditionTarget(LayoutNodeKind kind, string? parentId = null, string? parentLabel = null)
+    private sealed class AdditionTarget(LayoutNodeKind kind, string? parentId = null, string? parentLabel = null,
+        LayoutPoint? backgroundPosition = null)
     {
         public LayoutNodeKind Kind { get; } = kind;
         public string? ParentId { get; } = parentId;
         public string? ParentLabel { get; } = parentLabel;
+        public LayoutPoint? BackgroundPosition { get; } = backgroundPosition;
     }
     private AdditionTarget? _additionTarget;
     private NodeInputDialog? _nodeDialog;
@@ -97,32 +113,82 @@
 
     protected override void OnInitialized()
     {
-        _document = Document ?? CreateSampleDocument();
+        _session = new DocumentEditingSession(Document ?? CreateSampleDocument(), _settings, LayoutService, NodeCreation);
         _canvas.Apply(_document.View, _settings);
-        _layout = CalculateLayout();
+        if (_session.AutomaticallyMovedBackgroundIds.Count > 0)
+            _statusText = PlacementNotice("保存位置の重複を補正しました");
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender) return;
-        _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
-        _dotNetReference = DotNetObjectReference.Create(this);
-        await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
-            _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep,
-            _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance, _uiSettings.ChildAddWidthRatio);
+        if (firstRender)
+        {
+            _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
+            _dotNetReference = DotNetObjectReference.Create(this);
+            await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
+                _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep,
+                _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance, _uiSettings.ChildAddWidthRatio,
+                _uiSettings.TreeDragTolerance);
+        }
+        if (_canvasModule is null || _sentLayoutRevision == _session.Revision) return;
+        var revision = _session.Revision;
+        await _canvasModule.InvokeVoidAsync("updateTreeLayout", _canvasElement, revision, _layout.Trees.Select(tree => new
+        {
+            backgroundId = tree.BackgroundId,
+            position = new { x = tree.Position.X, y = tree.Position.Y },
+            bounds = new { x = tree.Bounds.X, y = tree.Bounds.Y, width = tree.Bounds.Width, height = tree.Bounds.Height }
+        }).ToArray());
+        _sentLayoutRevision = revision;
     }
 
     [JSInvokable]
     public async Task<bool> RequestChildAddition(string parentKey)
     {
         if (_disposed || _additionTarget is not null || _closingAddition) return false;
-        var parent = _layout.Nodes.FirstOrDefault(node => node.Key == parentKey);
+        var parent = _layout.NodesByKey.GetValueOrDefault(parentKey);
         if (parent is null || ChildKind(parent.Kind) is not { } childKind) return false;
         await OpenAdditionAsync(new(childKind, parent.Id, $"{NodeLabel(parent.Kind)} {parent.Id}"));
         return true;
     }
 
     private Task OpenBackgroundAsync() => OpenAdditionAsync(new(LayoutNodeKind.Background));
+
+    [JSInvokable]
+    public async Task<bool> RequestBackgroundAddition(double x, double y)
+    {
+        if (_disposed || _additionTarget is not null || _closingAddition || !double.IsFinite(x) || !double.IsFinite(y)) return false;
+        await OpenAdditionAsync(new(LayoutNodeKind.Background, backgroundPosition: new LayoutPoint(x, y)));
+        return true;
+    }
+
+    [JSInvokable]
+    public async Task<bool> CommitBackgroundMove(string id, double x, double y, long revision)
+    {
+        if (_disposed || _additionTarget is not null || _savingNode) return false;
+        try
+        {
+            var result = _session.MoveBackground(id, new LayoutPoint(x, y), revision);
+            if (!result.IsValid)
+                _statusText = "移動できません。他ツリーとの重複または配置変更のため開始位置へ戻しました。";
+            else if (result.HasMoved)
+                _statusText = $"背景 {id} のツリー全体を移動しました";
+            await InvokeAsync(StateHasChanged);
+            return result.IsValid && result.HasMoved;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            _statusText = $"移動を取り消しました：{error.Message}";
+            await InvokeAsync(StateHasChanged);
+            return false;
+        }
+    }
+
+    [JSInvokable]
+    public Task NotifyBackgroundMoveRejected(string reason)
+    {
+        _statusText = "他ツリーと重なるため移動できません。ツリー全体を開始位置へ戻しました。";
+        return InvokeAsync(StateHasChanged);
+    }
 
     private async Task OpenAdditionAsync(AdditionTarget target)
     {
@@ -145,14 +211,8 @@
         string id;
         try
         {
-            id = target.Kind switch
-            {
-                LayoutNodeKind.Background => NodeCreation.AddBackground(_document, input.Text),
-                LayoutNodeKind.TopLevelRequirement => NodeCreation.AddTopLevelRequirement(_document, target.ParentId!, input.Text, input.Reason),
-                LayoutNodeKind.LowerLevelRequirement => NodeCreation.AddLowerLevelRequirement(_document, target.ParentId!, input.Text, input.Reason),
-                LayoutNodeKind.Specification => NodeCreation.AddSpecification(_document, target.ParentId!, input.Text, input.RelatedRequirementIds),
-                _ => throw new InvalidOperationException("追加するノードの種別が不正です。")
-            };
+            id = _session.AddNode(target.Kind, target.ParentId, input.Text, input.Reason,
+                input.RelatedRequirementIds, target.BackgroundPosition);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
         {
@@ -162,8 +222,7 @@
         }
         // Keep view state and existing measurements. ResizeObserver measures only
         // the newly inserted node; the current engine then updates affected positions.
-        _layout = CalculateLayout();
-        _statusText = $"{NodeLabel(target.Kind)} {id} を追加しました";
+        _statusText = PlacementNotice($"{NodeLabel(target.Kind)} {id} を追加しました");
         _savingNode = false;
         await CloseAdditionAsync(target);
     }
@@ -204,32 +263,35 @@
     private static string AdditionLabel(LayoutNodeKind kind) => $"{NodeLabel(kind)}を追加";
 
     [JSInvokable]
-    public async Task NodeSizesChanged(MeasuredNodeSize[] measurements)
+    public async Task<long> NodeSizesChanged(MeasuredNodeSize[] measurements)
     {
-        if (_disposed) return;
-        var changed = false;
+        if (_disposed) return _session.Revision;
+        var changes = new Dictionary<string, NodeSize>(StringComparer.Ordinal);
         foreach (var measurement in measurements)
         {
             if (!double.IsFinite(measurement.Width) || !double.IsFinite(measurement.Height)
                 || measurement.Width <= 0 || measurement.Height <= 0) continue;
-            var size = new NodeSize(measurement.Width, Math.Max(measurement.Height, _settings.MinNodeHeight));
-            if (_measuredSizes.TryGetValue(measurement.Key, out var previous) && previous == size) continue;
-            _measuredSizes[measurement.Key] = size;
-            changed = true;
+            changes[measurement.Key] = new NodeSize(measurement.Width, measurement.Height);
         }
-        if (!changed) return;
-        // The bottom anchor must use the actual border even for sub-threshold size differences.
-        _layout = CalculateLayout();
+        try
+        {
+            if (!_session.ApplyMeasuredSizes(changes)) return _session.Revision;
+            if (_session.AutomaticallyMovedBackgroundIds.Count > 0)
+                _statusText = PlacementNotice("表示サイズを補正しました");
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            _statusText = $"表示サイズの補正を確定できませんでした：{error.Message}";
+        }
         await InvokeAsync(StateHasChanged);
+        return _session.Revision;
     }
 
     [JSInvokable]
     public Task CanvasChanged(double zoom, double panX, double panY)
     {
         _canvas.Synchronize(zoom, panX, panY, _settings);
-        _document.View.Zoom = _canvas.Zoom;
-        _document.View.Pan.X = _canvas.PanX;
-        _document.View.Pan.Y = _canvas.PanY;
+        _session.SetViewport(_canvas.Zoom, _canvas.PanX, _canvas.PanY);
         return Task.CompletedTask;
     }
 
@@ -237,31 +299,39 @@
     public async Task ReasonChanged(string key, bool expanded)
     {
         if (_disposed || IsReasonExpanded(key) == expanded) return;
-        if (expanded) _document.View.Nodes[key] = new NodeViewState { ReasonExpanded = true };
-        else _document.View.Nodes.Remove(key);
-        // ResizeObserver reports the new natural height; retaining the previous measured
-        // height as a CSS minimum would prevent a collapsed reason from shrinking.
+        try
+        {
+            if (!_session.SetReasonExpanded(key, expanded)) return;
+            _statusText = PlacementNotice(expanded ? "理由を展開しました" : "理由を折りたたみました");
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            if (_canvasModule is not null)
+                await _canvasModule.InvokeVoidAsync("restoreReasonState", _canvasElement, key, IsReasonExpanded(key));
+            _statusText = $"理由の表示変更を取り消しました：{error.Message}";
+        }
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task ResetZoom()
     {
-        _canvas.Reset(_settings);
-        _document.View.Zoom = _canvas.Zoom;
-        _document.View.Pan.X = _canvas.PanX;
-        _document.View.Pan.Y = _canvas.PanY;
+        // JS refuses viewport changes during a tree gesture/commit, and reports
+        // accepted changes through CanvasChanged. Do not change saved pan early.
         if (_canvasModule is not null) await _canvasModule.InvokeVoidAsync("resetCanvas", _canvasElement, _settings.InitialZoom);
     }
 
     private string WorldStyle => $"width:{Px(_layout.CanvasBounds.Width)}; height:{Px(_layout.CanvasBounds.Height)}";
+    private string SvgStyle => $"left:{Px(_layout.CanvasBounds.X)};top:{Px(_layout.CanvasBounds.Y)};--connection-stroke-width:{Px(_settings.ConnectionStrokeWidth)}";
+    private string SvgViewBox => $"{Number(_layout.CanvasBounds.X)} {Number(_layout.CanvasBounds.Y)} {Number(_layout.CanvasBounds.Width)} {Number(_layout.CanvasBounds.Height)}";
 
     private string NodeStyle(LayoutNode node) =>
         $"left:{Px(node.Bounds.X)}; top:{Px(node.Bounds.Y)}; width:{Px(_settings.NodeWidth)}; min-height:{Px(_settings.MinNodeHeight)}";
 
-    private static string Px(double value) => $"{value.ToString("0.##", CultureInfo.InvariantCulture)}px";
+    private static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    private static string Px(double value) => $"{Number(value)}px";
 
     private static string PathFor(LayoutEdge edge) => string.Create(CultureInfo.InvariantCulture,
-        $"M {edge.Start.X:0.##} {edge.Start.Y:0.##} C {edge.ControlPoint1.X:0.##} {edge.ControlPoint1.Y:0.##}, {edge.ControlPoint2.X:0.##} {edge.ControlPoint2.Y:0.##}, {edge.End.X:0.##} {edge.End.Y:0.##}");
+        $"M {edge.Start.X:R} {edge.Start.Y:R} C {edge.ControlPoint1.X:R} {edge.ControlPoint1.Y:R}, {edge.ControlPoint2.X:R} {edge.ControlPoint2.Y:R}, {edge.End.X:R} {edge.End.Y:R}");
 
     private static string NodeClass(LayoutNodeKind kind) => kind switch
     {
@@ -272,13 +342,9 @@
 
     private bool IsReasonExpanded(string key) => _document.View.Nodes.TryGetValue(key, out var state) && state.ReasonExpanded;
 
-    private LayoutResult CalculateLayout() => LayoutService.Calculate(new LayoutRequest
-    {
-        Document = _document,
-        Settings = _settings,
-        MeasuredSizes = _measuredSizes,
-        ExpandedReasonNodeIds = _document.View.Nodes.Where(x => x.Value.ReasonExpanded).Select(x => x.Key).ToHashSet(StringComparer.Ordinal)
-    });
+    private string PlacementNotice(string message) => _session.AutomaticallyMovedBackgroundIds.Count == 0
+        ? message
+        : $"{message}。背景 {string.Join("、", _session.AutomaticallyMovedBackgroundIds)} を下方へ自動移動しました（配下のノード・接続線を含む）。";
 
     public async ValueTask DisposeAsync()
     {

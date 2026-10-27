@@ -14,7 +14,8 @@ public sealed class UsdmDocument
 public static class DocumentFormat
 {
     public const int Legacy = 1;
-    public const int Current = 2;
+    public const int ViewState = 2;
+    public const int Current = 3;
 }
 
 public sealed class DocumentViewState
@@ -22,6 +23,13 @@ public sealed class DocumentViewState
     public double Zoom { get; set; } = 1.0;
     public PanState Pan { get; set; } = new();
     public Dictionary<string, NodeViewState> Nodes { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, CanvasPosition> BackgroundPositions { get; set; } = new(StringComparer.Ordinal);
+}
+
+public sealed class CanvasPosition
+{
+    public double X { get; set; }
+    public double Y { get; set; }
 }
 
 public sealed class PanState

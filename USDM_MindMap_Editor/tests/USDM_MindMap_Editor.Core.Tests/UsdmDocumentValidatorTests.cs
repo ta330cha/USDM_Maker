@@ -60,4 +60,56 @@ public sealed class UsdmDocumentValidatorTests
         document.Backgrounds[0].Id = "65536";
         Assert.IsTrue(_validator.Validate(document).Errors.Any(x => x.Code == "background.id.invalid"));
     }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public void AcceptsAllThreeSupportedFormatsAndMissingPositionsDuringStructuralValidation(int format)
+    {
+        var document = TestDocumentFactory.Create();
+        document.FormatVersion = format;
+        Assert.IsTrue(_validator.Validate(document).IsValid);
+        Assert.IsTrue(_validator.Validate(document, requireBackgroundPositions: true).Errors
+            .Any(x => x.Code == "view.background_position.required"));
+    }
+
+    [TestMethod]
+    public void AcceptsNegativeFractionalAndZeroBackgroundCoordinates()
+    {
+        var document = TestDocumentFactory.Create();
+        document.View.BackgroundPositions["001"] = new() { X = -123.75, Y = 0 };
+        Assert.IsTrue(_validator.Validate(document, requireBackgroundPositions: true).IsValid);
+    }
+
+    [TestMethod]
+    public void DetectsPositionForAnUnknownBackground()
+    {
+        var document = TestDocumentFactory.Create();
+        document.View.BackgroundPositions["requirement:001"] = new() { X = 96, Y = 96 };
+        var result = _validator.Validate(document);
+        Assert.IsTrue(result.Errors.Any(x => x.Code == "view.background_position.missing"));
+    }
+
+    [TestMethod]
+    [DataRow(double.NaN, 0d)]
+    [DataRow(double.PositiveInfinity, 0d)]
+    [DataRow(double.NegativeInfinity, 0d)]
+    [DataRow(0d, double.NaN)]
+    [DataRow(0d, double.PositiveInfinity)]
+    [DataRow(0d, double.NegativeInfinity)]
+    public void RejectsNonFiniteBackgroundCoordinates(double x, double y)
+    {
+        var document = TestDocumentFactory.Create();
+        document.View.BackgroundPositions["001"] = new() { X = x, Y = y };
+        Assert.IsTrue(_validator.Validate(document).Errors.Any(error => error.Code == "view.background_position.invalid"));
+    }
+
+    [TestMethod]
+    public void RejectsAnUnspecifiedPositionValue()
+    {
+        var document = TestDocumentFactory.Create();
+        document.View.BackgroundPositions["001"] = null!;
+        Assert.IsTrue(_validator.Validate(document).Errors.Any(x => x.Code == "view.background_position.invalid"));
+    }
 }

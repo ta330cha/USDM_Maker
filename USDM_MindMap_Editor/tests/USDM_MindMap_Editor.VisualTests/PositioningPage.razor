@@ -1,0 +1,28 @@
+@page "/positioning/{Scenario}/{ZoomPercent:int}"
+@using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.VisualTests
+
+@if (_document is not null)
+{
+    <Home @key="_document" Document="_document" />
+}
+else
+{
+    <p>不明な確認ケースまたは倍率です。chain、negative、overlap、legacy2 と 25、100、200 を指定してください。</p>
+}
+
+@code {
+    [Parameter] public string Scenario { get; set; } = "chain";
+    [Parameter] public int ZoomPercent { get; set; } = 100;
+    private UsdmDocument? _document;
+    private string? _inputKey;
+
+    protected override void OnParametersSet()
+    {
+        var key = $"{Scenario}:{ZoomPercent}";
+        if (_inputKey == key) return;
+        _inputKey = key;
+        _document = PositioningScenarioFactory.Names.Contains(Scenario) && PositioningScenarioFactory.ZoomPercents.Contains(ZoomPercent)
+            ? PositioningScenarioFactory.Create(Scenario, ZoomPercent) : null;
+    }
+}

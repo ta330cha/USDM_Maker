@@ -112,3 +112,60 @@ node --test tests/js/mindmapCanvas.test.mjs
 ```bash
 node --test tests/js/mindmapCanvas.test.mjs tests/js/nodeInputDialog.test.mjs
 ```
+
+## 背景単位の配置・移動・形式3の確認
+
+今回の専用ページは `http://127.0.0.1:5189/positioning/{Scenario}/{ZoomPercent}` です。`ZoomPercent` は `25`、`100`、`200` を指定します。たとえば `/positioning/chain/100` を Safari で開きます。ページは確認用の入力文書を本番の `Home` へ渡すだけで、ポインターイベントの合成や、確認専用の追加・移動操作は実装していません。`Program.cs` の通常の確認ホストから利用できます。
+
+| Scenario | 初期文書と確認目的 |
+|---|---|
+| `chain` | 4階層の背景001、その下へ近接する背景002・003、横に十分離れた背景004。理由展開・子追加で002→003が連鎖移動し、001と004を維持できるか確認 |
+| `negative` | `chain` を平行移動し、001を `(-360.5, -220.25)` に配置。各倍率に合わせた保存済みパンで001を画面内へ表示し、負座標を正値へ書き換えずに描画・操作できるか確認 |
+| `overlap` | 001・002・003の保存位置を意図的に重複させた文書。fixtureでは補正せず、`Home` の初期配置補正と利用者への通知を確認 |
+| `legacy2` | `format_version: 2` のYAMLを実際にデシリアライズして渡す。選択倍率は元YAMLの `view.zoom` に含め、パン `(83.25, -31.5)` と要求001の理由展開を保ち、背景位置だけを補完するか確認 |
+
+各ケースは再読み込みで入力文書からやり直します。再読み込み後の状態は保存ファイルの復元ではなくfixtureの再生成です。通常の「保存」「開く」ボタンは今回接続せず、YAML入出力の確認は以下のCore経路で行います。ファイルダウンロード・ファイル選択が動作したという確認結果にはしないでください。
+
+### Coreでの読み込み・位置確定・保存
+
+`UsdmYamlSerializer.Deserialize` は構造と値を検証しますが、背景位置を推測して追加したり、重複を補正したりしません。位置の補完・補正と通知情報の取得は `DocumentEditingSession` が担当します。形式1・2と、位置が不足する形式3もこの経路で読み込みます。
+
+```csharp
+using USDM_MindMap_Editor.Core.Editing;
+using USDM_MindMap_Editor.Core.Serialization;
+
+// inputYaml は読み込み対象のYAML文字列。
+var serializer = new UsdmYamlSerializer();
+var loaded = serializer.Deserialize(inputYaml);
+var session = new DocumentEditingSession(loaded);
+
+// UI側は初期位置補完と、既存位置の重複補正を区別して通知する。
+var initializedIds = session.InitializedBackgroundIds;
+var correctedIds = session.AutomaticallyMovedBackgroundIds;
+
+// 全背景の確定位置を含む形式3を生成する。DOM実測値やドラッグ候補は含めない。
+string outputYaml = session.Serialize(serializer);
+```
+
+Serializerへ直接、背景位置が不足する文書を渡して保存すると「保存前に背景の配置位置を確定してください」という検証エラーになります。Serializer内で初期配置を行うことはありません。保存文字列の生成は入力文書を書き換えず、実際の保存処理が成功する前に `MarkSaved()` を呼ばないでください。
+
+Core試験はプロジェクトルートから実行します。
+
+```bash
+dotnet test tests/USDM_MindMap_Editor.Core.Tests/USDM_MindMap_Editor.Core.Tests.csproj
+```
+
+### Safariでの操作手順
+
+この確認も macOS の Safari を使用します。利用者指定に従いChromeは使用せず、過去のChromium試験結果を今回の合格結果へ流用しません。以下は手順であり、合格記録ではありません。
+
+1. 各ケースを25%・100%・200%で開き、初期描画とDOMサイズ補正が落ち着いた後の背景位置・状態表示を記録します。SVGの接続線、長文、負座標側の描画に欠けがないか確認します。アプリ内倍率とSafari自体のページズームは区別します。
+2. `chain` の要求001で理由を展開し、001を固定したまま002・003が必要な範囲だけ下がり、横に離れた004は動かないことを確認します。理由を閉じても他背景を詰め直さないことを確認します。初期化し直し、下位要求001-001の下辺から仕様を追加する操作でも同様に確認します。
+3. 背景本体を空いた場所へドラッグし、背景・全子孫・接続線が同量移動すること、確定時だけ位置と変更状態が更新されることを確認します。別ツリーへ重なる位置で離すと開始位置へ戻り、他背景は動かず、拒否の通知が出ることを確認します。途中の最後の空き位置へ吸着する動作とは区別します。
+4. ドラッグをEscapeで取り消し、別ウインドウ・別アプリへの切り替えでも取り消されることを確認します。実質移動なし・取消・無効移動では、新たな位置確定や未保存変更を作らないことを確認します。ドラッグ中のズーム・パンや子追加が混在しないことも確認します。
+5. 空白をダブルクリックして背景入力を開き、保存したときだけクリック位置を基準に背景が追加されることを確認します。取消・空白本文エラー、ノード・子追加楕円・接続線・操作部品上のダブルクリック、パン操作では誤追加されないことを確認します。ツールバーの背景追加と、既存の子追加・理由操作も確認します。
+6. `negative` でパンを往復し、ズームを変えても接続線とノードがずれず、ドラッグ確定位置が画面座標ではなくキャンバス座標で扱われることを確認します。`overlap` では初期補正の通知、`legacy2` では保存済み倍率・パン・理由展開と位置補完を確認します。
+
+読取専用でDOMを確認できる場合、背景別 `.tree-nodes` の `data-position-x` / `data-position-y` は確定済みのグローバルキャンバス座標です。ドラッグ中の見た目の `transform` を保存位置と混同しないでください。`.mindmap-canvas` の `data-layout-revision` と `data-unsaved` も変更前後を記録できます。ただし、DOMサイズ補正でもリビジョンは変わり得るため、初期値が常に1であると仮定せず、操作前の安定した値と比較します。
+
+実機で `pointercancel` やキャプチャ喪失を発生させられない場合、または操作ツールでドラッグ・ダブルクリック・状態読取りができない場合は、未確認の条件と理由を記録します。単体試験、ルートのHTTP応答、画面が開いたことだけを実ジェスチャー確認の代わりにしません。過去の `artifacts/connection-lines/`、`indented-layout/`、`child-insertion/`、`elliptical-child-insertion/` や強調残留対策の記録は今回の背景位置機能の結果として再利用せず、今回のケース名・倍率・操作・環境を明記した別の記録を作成します。

@@ -120,12 +120,14 @@ YAML 形式で保存、読み込みを行う。
 | `RequirementNode` | Core | 上位要求、下位要求と単一の親 ID |
 | `SpecificationNode` | Core | 仕様、所属先の下位要求 ID、関連下位要求 ID |
 | `IdGenerator` | Core | ID 自動採番 |
-| `AutoLayoutService` | Core | ツリー内部の自動配置と背景位置の合成。背景別占有範囲、重複検証・自動移動へ拡張予定 |
+| `AutoLayoutService` | Core | 背景を原点としたツリー内部の自動配置。変更背景だけを再計算し、未変更ツリーを再利用 |
+| `BackgroundPlacementService` | Core | 背景位置と占有範囲の合成、重複検証、下方への自動移動、ドラッグ確定位置の検証 |
+| `DocumentEditingSession` | Core / Application Service | 文書・ビュー・背景位置・レイアウトの一括確定、初期補完・補正の通知、操作競合を防ぐリビジョン管理 |
 | `ILayoutEngine` | Core | 暫定案。全体または影響範囲のレイアウト計算を抽象化 |
 | `UsdmYamlSerializer` | Core | 固定順 YAML の保存、読み込み |
 | `UsdmYamlReaderFactory` | Core | YAML の `format_version` から対応する読み取り用クラスを選択 |
 | `IUsdmVersionedReader` | Core | 特定の YAML 形式バージョンを現在の内部モデルへ読み込む |
-| `UsdmDocumentMigrator` | Core | 旧バージョンの文書を現在の内部モデルへ変換 |
+| `UsdmDocumentMigrator`（概念上の責務） | Core | 現行は形式別ReaderとDTOの変換処理で旧文書を現在の内部モデルへ変換。独立した同名クラスは未分離 |
 | `UsdmTableExporter` | Core | USDM 表への変換とエクスポート用データの生成 |
 | `DocumentValidator` | Core | ID 重複、必須項目、上限件数の検証 |
 | `ExportWarningService` | Core | 理由未入力など、エクスポート時の警告を収集 |
@@ -148,13 +150,15 @@ Web UIで親ノードと追加する子の種別を特定
   ↓
 Blazor コンポーネント
   ↓
-Application Service
+DocumentEditingSession（候補文書）
   ↓
 IdGenerator
   ↓
-UsdmDocument 更新
+候補UsdmDocument 更新
   ↓
-AutoLayoutService
+AutoLayoutService / BackgroundPlacementService
+  ↓
+文書・ビュー・背景位置を一括確定
   ↓
 画面再描画
 ```
@@ -163,9 +167,9 @@ AutoLayoutService
 
 Web層はダイアログ起動時の入力方法と、DOMフォーカス・ホバー強調を分離して管理する。ダイアログ終了時には起点へフォーカスを戻しつつ、マウス起点の青い塗りつぶしは解除し、キーボード起点は輪郭で操作位置を示す。`Home`、キャンバス側JavaScript、ダイアログ側JavaScriptの開閉・復帰処理を連携し、追加開始・終了時に古いホバーを解除する。Coreの文書更新・レイアウトと永続化にはこの一時状態を持ち込まない。2026-10-27に残留対策を実装した。既存のダイアログ側フォーカス復帰は変更せず、キャンバス側で固定した入力起点と独立したホバー・輪郭クラスを管理する。表示規則は [UI.md](UI.md) §8を正本とし、実UIの確認範囲と残項目は [QA_Q_sheet.md](QA_Q_sheet.md) D-14へ記録する。
 
-2026-10-27の実装では、Coreの `Editing/NodeCreationService` が追加ユースケースを担当する。必須本文、親の実在・階層、仕様の関連下位要求を検証した後、既存の `UsdmIdAllocator` で採番して1ノードを追加する。検証・採番失敗時は文書を変更しない。Webの `NodeInputDialog` は未確定入力、`Home` は追加対象と確定処理、`mindmapCanvas.js` は縦10px・幅比率0.5の楕円判定とキャプチャ段階のイベント優先制御を担当する。旧4px帯から楕円へ変更済みであり、理由の一時的な状態変更を伴わず子追加へ振り分ける。Coreの追加・採番処理とダイアログは変更していない。追加確定後は現在の全体レイアウトAPIを呼ぶため、局所再計算の最適化は引き続き未実装である。YAMLの構造と `format_version=2` は変更しない。
+2026-10-27の実装では、Coreの `Editing/NodeCreationService` が必須本文、親の実在・階層、関連下位要求を検証し、`UsdmIdAllocator` で採番する。現在は `DocumentEditingSession` が候補文書上で追加・背景単位の再配置・重複解消を行い、成功した文書・ビュー・確定位置をまとめて公開する。検証・採番・配置の失敗では元の確定文書を変更しない。Webの `NodeInputDialog` は未確定入力、`Home` は追加対象とSessionへの確定要求、`mindmapCanvas.js` は楕円判定とイベント優先制御を担当する。楕円への変更時は形式2を維持したが、今回の背景位置保存では形式3へ更新した。細粒度のサブツリー局所再計算は残課題である。
 
-### 背景追加位置とツリー全体移動（今回追加・未実装）
+### 背景追加位置とツリー全体移動（2026-10-27実装）
 
 空白ダブルクリックではWeb層がビューポート座標をキャンバス座標へ変換し、背景左上の候補位置をダイアログの一時状態へ保持する。保存時にのみ既存の追加ユースケースへ渡す。ツールバー起点で候補がない場合は、Coreの既定の空き位置を用いる。要求データ・背景位置・重複解消結果を一括確定し、キャンセル・検証失敗ではいずれも更新しない。
 
@@ -183,36 +187,40 @@ Coreが背景別占有範囲で他ツリーとの重複を再検証
 
 CoreはDOMに依存せず、内部相対座標、背景位置、全ツリーの外接矩形から重複を判定する。子追加・編集・理由展開・サイズ補正による拡大では、変更元の背景位置を維持して他ツリーの自動移動を計算する。ドラッグ時は他ツリーを移動しない。読み込み時の重複補正も同じ配置責務で扱う。
 
-Web層は確定位置と移動候補を分離し、重複表示、取消、ドラッグ後のクリック抑止を担当する。ポインター移動ごとのSignalR通信、全体レイアウト、全DOM測定は行わない。Coreの検証中は確定結果との競合操作を抑止する。保存は確定状態だけを使う。既存の `LayoutRequest`、`LayoutResult`、`AutoLayoutService`、`CanvasState` とビュー保存モデルを拡張する方針であり、新規のレイアウト用インターフェースは追加前提にしない。
+Web層は確定位置と移動候補を分離し、重複表示、取消、ドラッグ後のクリック抑止を担当する。ポインター移動ごとのSignalR通信、全体レイアウト、全DOM測定は行わない。Coreの検証中は確定結果との競合操作を抑止する。保存は確定状態だけを使う。既存の `LayoutRequest`、`LayoutResult`、`AutoLayoutService`、`CanvasState` とビュー保存モデルを拡張し、新規のレイアウトエンジン用インターフェースは追加していない。
+
+現行実装では `LayoutRequest` に既存レイアウト・変更背景ID・固定する背景IDを渡し、`LayoutResult` に背景別の所属ノード・接続線・占有範囲と確定位置、補完・自動移動した背景IDを返す。`BackgroundPlacementService` は操作元を固定して衝突する他ツリーを下へ連鎖移動し、ドラッグ時は他ツリーを動かさず重複候補を拒否する。`DocumentEditingSession` は候補を一括確定し、無効・取消・実質移動なしでは位置変更を作らない。Sessionのリビジョンは古い移動確定を拒否するためのもので、未実装のノード単位 `LayoutRevision` 付き実測キャッシュとは異なる。
 
 ### YAML 保存
 
 ```text
-保存操作
+保存操作（ファイルUIは今回未接続）
   ↓
-DocumentValidator
+DocumentEditingSessionの確定文書（全背景位置を含む）
   ↓
-要求データとビュー状態を保存モデルへ統合
+UsdmYamlSerializer / DocumentValidator
   ↓
-UsdmYamlSerializer
+形式3のYAML文字列
   ↓
-ブラウザのダウンロード
+ブラウザのダウンロード（後続のUI接続）
 ```
 
 ### YAML 読み込み
 
 ```text
-ファイル選択
+YAML文字列（ファイル選択UIは今回未接続）
   ↓
-UsdmYamlReaderFactory
+UsdmYamlSerializer.Deserialize / UsdmYamlReaderFactory
   ↓
-IUsdmVersionedReader
-  ↓
-UsdmDocumentMigrator
+形式別IUsdmVersionedReaderとDTO変換
   ↓
 DocumentValidator
   ↓
-AutoLayoutService
+DocumentEditingSession
+  ↓
+AutoLayoutService / BackgroundPlacementServiceで位置補完・重複補正
+  ↓
+確定位置の一括反映と補完・補正通知
   ↓
 保存されたビュー状態を CanvasState と理由表示状態へ復元
   ↓
@@ -221,7 +229,7 @@ AutoLayoutService
 
 `format_version` がない旧 YAML は形式バージョン1として扱う。旧 YAML にビュー状態が存在しない場合は、ズーム100%、パン位置 `(0, 0)`、理由を折りたたんだ初期状態を使用する。
 
-背景配置位置は形式3で追加する。形式1・2は旧ビュー状態を維持しつつ背景位置を初期配置で補完する。保存位置から再計算した範囲が重なる場合はレイアウト側で自動補正し、Webへ通知する。文書の構造検証と、サイズに依存する配置検証を分離する。詳細は [DataModel.md](DataModel.md) §8・11を参照する。
+背景配置位置は形式3として実装した。形式1・2は旧ビュー状態を維持しつつ、Session/Layoutが背景位置を初期配置で補完する。保存位置から再計算した範囲が重なる場合もレイアウト側で補正し、Webへ通知する。Serializerの読込は構造検証までとし、保存は全背景の確定位置を必須にする。Serializer自身は補完・重複補正をせず、入力文書を変更しない。ファイル選択・ダウンロードUIは今回接続しない。詳細は [DataModel.md](DataModel.md) §8・11を参照する。
 
 ### ノードサイズ補正
 
@@ -297,11 +305,11 @@ YAML 読み込み、新規文書の初回配置、明示的な全体自動整列
 
 兄弟サブツリー間と背景自動配置時の上下間隔、親子上下間隔、キャンバス初期余白、共通固定ノード幅、サイズ予測パラメーター、実測差分閾値、ズーム範囲、10%のズーム操作量は各処理へ埋め込まず、一元管理するアプリケーション設定として Core と Web の必要箇所へ渡す。初期版では文書 YAML に含めない。
 
-レイアウト方式の差し替えと単体テストを可能にするため、`AutoLayoutService` が Core 層の `ILayoutEngine` を利用する構成を採用する。親の下へ右にインデントする自動配置、予測サイズ、実測サイズの反映、親子接続線の幾何計算をCoreで扱い、ノード変更時の局所再計算は編集操作とともに拡張する。2026-10-27に下方インデント配置を実装した。子孫と曲線を含むサブツリー範囲を末端から合成し、後続の兄弟・背景とキャンバス範囲へ反映する。DOM実測値の変更時は引き続き全体再計算で追従し、局所再計算は未実装である。
+レイアウト方式の差し替えと単体テストを可能にするため、`AutoLayoutService` が Core 層の `ILayoutEngine` を実装する構成を採用する。親の下へ右にインデントする自動配置、予測サイズ、実測サイズの反映、親子接続線の幾何計算をCoreで扱う。2026-10-27に背景単位の部分再計算へ拡張し、追加・理由展開・実測変更があった背景を再計算して、未変更背景のツリーを再利用する。細粒度のサブツリー局所再計算、実測差分閾値の適用、ノード単位Revision付き実測キャッシュは未実装である。
 
 詳細な配置規則、座標系、再計算範囲は [LayoutDesign.md](LayoutDesign.md) を参照する。
 
-現行実装は全背景をID順で縦配置し、背景位置の入力・保存、ツリー別ドラッグ、重複制御は未実装である。直前の実装済み記録はツリー内部の下方インデント配置を指し、今回の背景単位配置への対応完了を示さない。
+現行実装は保存済み背景位置を優先し、位置を持たない背景だけをID順で初期配置する。負座標を含むキャンバス範囲、背景単位の移動、ノード・接続線幅を含む外接矩形での重複制御に対応した。CoreとJavaScriptの新規自動テストを追加し、今回の実UI確認範囲・制約は [QA_Q_sheet.md](QA_Q_sheet.md) で管理する。過去の下方インデント配置や子追加の画面試験とは区別する。
 
 ## 10. 描画方針
 
@@ -408,7 +416,7 @@ Core 層を中心にテストする。
 - YAML 構造に互換性上意味のある変更がある場合だけ `format_version` を更新する。
 - `view` 状態の永続化を初めて導入するリリースは Application Version の Minor を上げる。具体的な番号はリリース計画で決定する。
 - `view` を追加した形式は形式バージョン2とし、`format_version` がない既存形式を形式バージョン1として読み込む。
-- 背景配置位置を追加する形式は3とし、形式1・2の読み取り・変換を維持する。現行コードは形式2までであり、今回の形式3対応は未実装とする。
+- 背景配置位置を追加した現行形式は3とし、形式1・2の読み取り・変換も実装する。今回Application Versionは `0.1.0` を維持し、正式リリース時のMinor更新は別に判断する。
 
 保存時は実行中の Application Version と現行 `format_version` をそれぞれ出力する。読み込み時は `format_version` を先に判定して現在の内部モデルへ変換し、`version` は作成・保存元アプリケーションの識別と診断情報として扱う。
 対応可能な `format_version` であれば、`version` が現在の Application Version と異なることだけを理由に読み込みを拒否しない。

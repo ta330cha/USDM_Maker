@@ -16,33 +16,39 @@ public sealed class AutoLayoutService : ILayoutEngine
     {
         ArgumentNullException.ThrowIfNull(request);
         var settings = request.Settings;
+        BackgroundPlacementService.ValidateSettings(settings);
         var predictor = new NodeSizePredictor(settings);
-        var roots = BuildTree(request, predictor);
-        var placed = new List<LayoutNode>(roots.Count);
-        var edges = new List<LayoutEdge>();
-        var cursorY = settings.CanvasMargin;
-        var maxRight = settings.CanvasMargin;
-        var maxBottom = settings.CanvasMargin;
-        var padding = Math.Max(settings.CanvasMargin, settings.ConnectionClearance);
-
+        var previous = request.PreviousLayout;
+        var canReuse = previous is not null && request.ChangedBackgroundIds is not null && previous.Settings == settings;
+        var previousTrees = previous?.Trees.ToDictionary(tree => tree.BackgroundId, StringComparer.Ordinal)
+            ?? new Dictionary<string, BackgroundTreeLayout>(StringComparer.Ordinal);
+        var changed = canReuse ? request.Document.Backgrounds
+            .Where(background => request.ChangedBackgroundIds!.Contains(background.Id) || !previousTrees.ContainsKey(background.Id))
+            .Select(background => background.Id).ToHashSet(StringComparer.Ordinal) : null;
+        var roots = BuildTree(request, predictor, changed);
+        var trees = new List<BackgroundTreeLayout>(request.Document.Backgrounds.Count);
         foreach (var root in roots)
         {
             MeasureSubtree(root, settings);
-            Place(root, settings.CanvasMargin, cursorY, placed, edges);
-            maxRight = Math.Max(maxRight, settings.CanvasMargin + root.SubtreeBounds.Right + padding);
-            maxBottom = Math.Max(maxBottom, cursorY + root.SubtreeBounds.Bottom + padding);
-            cursorY += root.SubtreeBounds.Bottom + settings.SiblingGap;
+            var nodes = new List<LayoutNode>();
+            var edges = new List<LayoutEdge>();
+            Place(root, 0, 0, nodes, edges);
+            // Internal spacing keeps the established geometry. Tree occupancy also
+            // includes the painted stroke, but not shadows or interaction overlays.
+            var bounds = root.SubtreeBounds;
+            foreach (var edge in edges) bounds = bounds.Union(edge.Bounds.Inflate(settings.ConnectionStrokeWidth / 2));
+            trees.Add(new(root.Node.Id, new(0, 0), bounds, nodes, edges));
         }
+        if (canReuse)
+            trees.AddRange(request.Document.Backgrounds.Where(background => !changed!.Contains(background.Id))
+                .Select(background => previousTrees[background.Id]));
 
-        return new LayoutResult
-        {
-            Nodes = placed,
-            Edges = edges,
-            CanvasBounds = new LayoutRect(0, 0, maxRight, maxBottom)
-        };
+        var positions = request.BackgroundPositions ?? request.Document.View.BackgroundPositions
+            .ToDictionary(item => item.Key, item => new LayoutPoint(item.Value.X, item.Value.Y), StringComparer.Ordinal);
+        return new BackgroundPlacementService().Place(trees, positions, request.AnchoredBackgroundId, settings);
     }
 
-    private static List<TreeItem> BuildTree(LayoutRequest request, NodeSizePredictor predictor)
+    private static List<TreeItem> BuildTree(LayoutRequest request, NodeSizePredictor predictor, IReadOnlySet<string>? backgroundIds)
     {
         var document = request.Document;
         var expanded = request.ExpandedReasonNodeIds ?? new HashSet<string>(StringComparer.Ordinal);
@@ -54,7 +60,8 @@ public sealed class AutoLayoutService : ILayoutEngine
                 ? value
                 : predictor.Predict(kind, text, reason, IsExpanded(kind, id, expanded));
 
-        var backgrounds = document.Backgrounds.OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer).Select(background =>
+        var backgrounds = document.Backgrounds.Where(background => backgroundIds is null || backgroundIds.Contains(background.Id))
+            .OrderBy(x => x.Id, UsdmIdRules.NumericSegmentComparer).Select(background =>
         {
             var upper = document.Requirements
                 .Where(x => x.ParentBackgroundId == background.Id)
@@ -125,21 +132,14 @@ public sealed class AutoLayoutService : ILayoutEngine
             item.Connections.Add(edge);
             // Reuse the measured child range; do not walk its descendants again.
             // Include the incoming connection in this sibling's occupied range.
-            var occupied = Union(child.SubtreeBounds with
+            var occupied = (child.SubtreeBounds with
             {
                 X = childX + child.SubtreeBounds.X,
                 Y = childY + child.SubtreeBounds.Y
-            }, edge.Bounds);
-            item.SubtreeBounds = Union(item.SubtreeBounds, occupied);
+            }).Union(edge.Bounds);
+            item.SubtreeBounds = item.SubtreeBounds.Union(occupied);
             childY = occupied.Bottom + settings.SiblingGap;
         }
-    }
-
-    private static LayoutRect Union(LayoutRect first, LayoutRect second)
-    {
-        var left = Math.Min(first.X, second.X);
-        var top = Math.Min(first.Y, second.Y);
-        return new(left, top, Math.Max(first.Right, second.Right) - left, Math.Max(first.Bottom, second.Bottom) - top);
     }
 
     private static void Place(TreeItem item, double x, double y,

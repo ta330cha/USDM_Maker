@@ -24,6 +24,7 @@ public sealed record LayoutSettings
     public double ConnectionBendRatio { get; init; } = 0.5;
     // Minimum drawing padding for the SVG stroke, independent of curve distances.
     public double ConnectionClearance { get; init; } = 8;
+    public double ConnectionStrokeWidth { get; init; } = 2;
     public double NodeWidth { get; init; } = DefaultNodeWidth;
     public double LineHeight { get; init; } = DefaultLineHeight;
     public double HorizontalPadding { get; init; } = DefaultHorizontalPadding;
