@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>false</IsTestProject>
+    <!-- Fixture reuse imports MSTest analyzers, but this executable hosts UI rather than tests. -->
+    <NoWarn>$(NoWarn);MSTEST0001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/USDM_MindMap_Editor.Web/USDM_MindMap_Editor.Web.csproj" />
+    <ProjectReference Include="../USDM_MindMap_Editor.Core.Tests/USDM_MindMap_Editor.Core.Tests.csproj" />
+  </ItemGroup>
+  <!-- The referenced executable is another root app. Its duplicate framework assets
+       must not be merged; Program.cs serves its original application files directly. -->
+  <Target Name="UseHostFrameworkAssets" AfterTargets="ResolveReferencedProjectsStaticWebAssetsConfiguration">
+    <ItemGroup>
+      <StaticWebAssetProjectConfiguration Remove="@(StaticWebAssetProjectConfiguration)" />
+    </ItemGroup>
+  </Target>
+</Project>

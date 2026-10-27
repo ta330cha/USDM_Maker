@@ -5,7 +5,13 @@ namespace USDM_MindMap_Editor.Core.Layout;
 
 public sealed class AutoLayoutService : ILayoutEngine
 {
-    private sealed record TreeItem(LayoutNode Node, List<TreeItem> Children);
+    private sealed record TreeItem(LayoutNode Node, List<TreeItem> Children)
+    {
+        public double Height { get; set; }
+        public double NodeTop { get; set; }
+        public double ChildrenTop { get; set; }
+        public List<LayoutEdge> Connections { get; } = [];
+    }
 
     public LayoutResult Calculate(LayoutRequest request)
     {
@@ -19,13 +25,15 @@ public sealed class AutoLayoutService : ILayoutEngine
 
         foreach (var root in roots)
         {
-            var requiredHeight = MeasureSubtree(root, settings);
-            _ = Place(root, settings.CanvasMargin, cursorY, requiredHeight, settings, placed, edges);
-            cursorY += requiredHeight + settings.SiblingGap;
+            MeasureSubtree(root, settings);
+            Place(root, settings.CanvasMargin, cursorY, settings, placed, edges);
+            cursorY += root.Height + settings.SiblingGap;
         }
 
-        var maxRight = placed.Count == 0 ? settings.CanvasMargin : placed.Max(x => x.Bounds.Right) + settings.CanvasMargin;
-        var maxBottom = placed.Count == 0 ? settings.CanvasMargin : placed.Max(x => x.Bounds.Bottom) + settings.CanvasMargin;
+        var drawingBounds = placed.Select(x => x.Bounds).Concat(edges.Select(x => x.Bounds)).ToArray();
+        var padding = Math.Max(settings.CanvasMargin, settings.ConnectionClearance);
+        var maxRight = drawingBounds.Length == 0 ? settings.CanvasMargin : drawingBounds.Max(x => x.Right) + padding;
+        var maxBottom = drawingBounds.Length == 0 ? settings.CanvasMargin : drawingBounds.Max(x => x.Bottom) + padding;
         return new LayoutResult
         {
             Nodes = placed,
@@ -102,34 +110,40 @@ public sealed class AutoLayoutService : ILayoutEngine
         _ => $"unknown:{id}"
     };
 
-    private static double MeasureSubtree(TreeItem item, LayoutSettings settings)
+    private static void MeasureSubtree(TreeItem item, LayoutSettings settings)
     {
-        if (item.Children.Count == 0) return item.Node.Size.Height;
-        var childrenHeight = item.Children.Sum(child => MeasureSubtree(child, settings));
-        childrenHeight += settings.SiblingGap * (item.Children.Count - 1);
-        return Math.Max(item.Node.Size.Height, childrenHeight);
-    }
-
-    private static LayoutNode Place(TreeItem item, double x, double y, double subtreeHeight, LayoutSettings settings,
-        List<LayoutNode> placed, List<LayoutEdge> edges)
-    {
-        var nodeY = y + (subtreeHeight - item.Node.Size.Height) / 2;
-        var node = item.Node with { Bounds = new LayoutRect(x, nodeY, item.Node.Size.Width, item.Node.Size.Height) };
-        placed.Add(node);
-
-        var childHeight = item.Children.Count == 0 ? 0 : item.Children.Sum(child => MeasureSubtree(child, settings)) + settings.SiblingGap * (item.Children.Count - 1);
-        var childY = y + (subtreeHeight - childHeight) / 2;
+        foreach (var child in item.Children) MeasureSubtree(child, settings);
+        var childrenHeight = item.Children.Sum(child => child.Height)
+            + settings.SiblingGap * Math.Max(0, item.Children.Count - 1);
+        var contentHeight = Math.Max(item.Node.Size.Height, childrenHeight);
+        item.NodeTop = (contentHeight - item.Node.Size.Height) / 2;
+        item.ChildrenTop = (contentHeight - childrenHeight) / 2;
+        item.Height = contentHeight;
+        var parent = new LayoutRect(0, item.NodeTop, item.Node.Size.Width, item.Node.Size.Height);
+        var childY = item.ChildrenTop;
         foreach (var child in item.Children)
         {
-            var childSubtreeHeight = MeasureSubtree(child, settings);
-            var placedChild = Place(child, node.Bounds.Right + settings.LevelGap, childY, childSubtreeHeight, settings, placed, edges);
-            var start = node.Bounds.RightCenter;
-            var end = placedChild.Bounds.LeftCenter;
-            var controlX = (start.X + end.X) / 2;
-            edges.Add(new LayoutEdge(node.Key, placedChild.Key, start, end,
-                new LayoutPoint(controlX, start.Y), new LayoutPoint(controlX, end.Y)));
-            childY += childSubtreeHeight + settings.SiblingGap;
+            var childRect = new LayoutRect(parent.Right + settings.LevelGap, childY + child.NodeTop,
+                child.Node.Size.Width, child.Node.Size.Height);
+            var edge = ConnectionGeometry.Create(item.Node.Key, parent, child.Node.Key, childRect, settings);
+            item.Connections.Add(edge);
+            item.Height = Math.Max(item.Height, edge.Bounds.Bottom);
+            childY += child.Height + settings.SiblingGap;
         }
-        return node;
+    }
+
+    private static void Place(TreeItem item, double x, double y, LayoutSettings settings,
+        List<LayoutNode> placed, List<LayoutEdge> edges)
+    {
+        var nodeY = y + item.NodeTop;
+        var node = item.Node with { Bounds = new LayoutRect(x, nodeY, item.Node.Size.Width, item.Node.Size.Height) };
+        placed.Add(node);
+        edges.AddRange(item.Connections.Select(edge => edge.Translate(x, y)));
+        var childY = y + item.ChildrenTop;
+        foreach (var child in item.Children)
+        {
+            Place(child, node.Bounds.Right + settings.LevelGap, childY, settings, placed, edges);
+            childY += child.Height + settings.SiblingGap;
+        }
     }
 }

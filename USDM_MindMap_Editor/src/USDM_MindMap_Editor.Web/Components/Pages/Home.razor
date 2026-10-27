@@ -1,5 +1,6 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 @using System.Globalization
 @using USDM_MindMap_Editor.Core.Layout
 @using USDM_MindMap_Editor.Core.Models
@@ -24,31 +25,26 @@
     </header>
 
     <main class="mindmap-canvas" @ref="_canvasElement" aria-label="マインドマップキャンバス">
-        <div class="mindmap-world" style="@WorldStyle">
+        <div class="mindmap-world">
+          <div class="mindmap-content" style="@WorldStyle">
             <svg class="connectors" width="@_layout.CanvasBounds.Width" height="@_layout.CanvasBounds.Height" aria-hidden="true">
                 @foreach (var edge in _layout.Edges)
                 {
-                    <path d="@PathFor(edge)" />
+                    <path @key="edge.ChildId" data-parent="@edge.ParentId" data-child="@edge.ChildId" d="@PathFor(edge)" />
                 }
             </svg>
             @foreach (var node in _layout.Nodes)
             {
-                <article class="node @NodeClass(node.Kind)" id="node-@node.Key" style="@NodeStyle(node)">
+                <article @key="node.Key" class="node @NodeClass(node.Kind)" id="node-@node.Key" style="@NodeStyle(node)">
                     <span class="node-id">@node.Id</span>
                     <p>@node.Text</p>
                     @if (!string.IsNullOrWhiteSpace(node.Reason))
                     {
-                        @if (IsReasonExpanded(node.Key))
-                        {
-                            <details open><summary>理由</summary><p>@node.Reason</p></details>
-                        }
-                        else
-                        {
-                            <details><summary>理由</summary><p>@node.Reason</p></details>
-                        }
+                        <details open="@IsReasonExpanded(node.Key)"><summary>理由</summary><p>@node.Reason</p></details>
                     }
                 </article>
             }
+          </div>
         </div>
     </main>
 
@@ -56,61 +52,53 @@
 </div>
 
 @code {
+    [Parameter] public UsdmDocument? Document { get; set; }
+
     private readonly LayoutSettings _settings = new();
     private readonly CanvasState _canvas = new();
-    private readonly UsdmDocument _document = CreateSampleDocument();
+    private UsdmDocument _document = null!;
     private LayoutResult _layout = null!;
-    private Dictionary<string, NodeSize> _measuredSizes = new(StringComparer.Ordinal);
-    private bool _measurePending;
+    private readonly Dictionary<string, NodeSize> _measuredSizes = new(StringComparer.Ordinal);
+    private bool _disposed;
     private ElementReference _canvasElement;
     private IJSObjectReference? _canvasModule;
     private DotNetObjectReference<Home>? _dotNetReference;
 
     protected override void OnInitialized()
     {
+        _document = Document ?? CreateSampleDocument();
         _canvas.Apply(_document.View, _settings);
         _layout = CalculateLayout();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
-            _dotNetReference = DotNetObjectReference.Create(this);
-            await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
-                _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep);
-        }
-        else if (!_measurePending)
-        {
-            return;
-        }
-
-        _measurePending = false;
-        var measurements = await _canvasModule!.InvokeAsync<MeasuredNodeSize[]>("measureNodes", _canvasElement);
-        var nextMeasurements = measurements
-            .Where(x => x.Width > 0 && x.Height > 0)
-            .ToDictionary(x => x.Key, x => new NodeSize(x.Width, x.Height), StringComparer.Ordinal);
-        if (nextMeasurements.Any(x => !_measuredSizes.TryGetValue(x.Key, out var old) || old != x.Value))
-        {
-            _measuredSizes = nextMeasurements;
-            var significant = measurements.Any(measurement =>
-            {
-                var node = _layout.Nodes.FirstOrDefault(x => x.Key == measurement.Key);
-                return node is not null && Math.Abs(Math.Max(measurement.Height, _settings.MinNodeHeight) - node.Size.Height)
-                    > _settings.MeasuredDifferenceThreshold(node.Size.Height);
-            });
-            _measuredSizes = nextMeasurements;
-            if (significant)
-            {
-                _layout = CalculateLayout();
-                await InvokeAsync(StateHasChanged);
-            }
-        }
+        if (!firstRender) return;
+        _canvasModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/mindmapCanvas.js");
+        _dotNetReference = DotNetObjectReference.Create(this);
+        await _canvasModule.InvokeVoidAsync("attachCanvas", _canvasElement, _dotNetReference,
+            _canvas.Zoom, _canvas.PanX, _canvas.PanY, _settings.MinZoom, _settings.MaxZoom, _settings.ZoomStep);
     }
 
     [JSInvokable]
-    public Task CanvasReady() => Task.CompletedTask;
+    public async Task NodeSizesChanged(MeasuredNodeSize[] measurements)
+    {
+        if (_disposed) return;
+        var changed = false;
+        foreach (var measurement in measurements)
+        {
+            if (!double.IsFinite(measurement.Width) || !double.IsFinite(measurement.Height)
+                || measurement.Width <= 0 || measurement.Height <= 0) continue;
+            var size = new NodeSize(measurement.Width, Math.Max(measurement.Height, _settings.MinNodeHeight));
+            if (_measuredSizes.TryGetValue(measurement.Key, out var previous) && previous == size) continue;
+            _measuredSizes[measurement.Key] = size;
+            changed = true;
+        }
+        if (!changed) return;
+        // The bottom anchor must use the actual border even for sub-threshold size differences.
+        _layout = CalculateLayout();
+        await InvokeAsync(StateHasChanged);
+    }
 
     [JSInvokable]
     public Task CanvasChanged(double zoom, double panX, double panY)
@@ -125,10 +113,11 @@
     [JSInvokable]
     public async Task ReasonChanged(string key, bool expanded)
     {
+        if (_disposed || IsReasonExpanded(key) == expanded) return;
         if (expanded) _document.View.Nodes[key] = new NodeViewState { ReasonExpanded = true };
         else _document.View.Nodes.Remove(key);
-        _layout = CalculateLayout();
-        _measurePending = true;
+        // ResizeObserver reports the new natural height; retaining the previous measured
+        // height as a CSS minimum would prevent a collapsed reason from shrinking.
         await InvokeAsync(StateHasChanged);
     }
 
@@ -138,13 +127,13 @@
         _document.View.Zoom = _canvas.Zoom;
         _document.View.Pan.X = _canvas.PanX;
         _document.View.Pan.Y = _canvas.PanY;
-        if (_canvasModule is not null) await _canvasModule.InvokeVoidAsync("resetCanvas", _canvasElement);
+        if (_canvasModule is not null) await _canvasModule.InvokeVoidAsync("resetCanvas", _canvasElement, _settings.InitialZoom);
     }
 
     private string WorldStyle => $"width:{Px(_layout.CanvasBounds.Width)}; height:{Px(_layout.CanvasBounds.Height)}";
 
-    private static string NodeStyle(LayoutNode node) =>
-        $"left:{Px(node.Bounds.X)}; top:{Px(node.Bounds.Y)}; width:{Px(node.Bounds.Width)}; min-height:{Px(node.Bounds.Height)}";
+    private string NodeStyle(LayoutNode node) =>
+        $"left:{Px(node.Bounds.X)}; top:{Px(node.Bounds.Y)}; width:{Px(_settings.NodeWidth)}; min-height:{Px(_settings.MinNodeHeight)}";
 
     private static string Px(double value) => $"{value.ToString("0.##", CultureInfo.InvariantCulture)}px";
 
@@ -167,6 +156,21 @@
         MeasuredSizes = _measuredSizes,
         ExpandedReasonNodeIds = _document.View.Nodes.Where(x => x.Value.ReasonExpanded).Select(x => x.Key).ToHashSet(StringComparer.Ordinal)
     });
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        if (_canvasModule is not null)
+        {
+            try
+            {
+                await _canvasModule.InvokeVoidAsync("detachCanvas", _canvasElement);
+                await _canvasModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { }
+        }
+        _dotNetReference?.Dispose();
+    }
 
     private static UsdmDocument CreateSampleDocument() => new()
     {

@@ -53,7 +53,7 @@ public sealed class AutoLayoutServiceTests
         var specification = result.Find(LayoutNodeKind.Specification, "001-001-001");
         Assert.IsTrue(result.Edges.Any(x => x.ParentId == background.Key && x.ChildId == upper.Key));
         var edge = result.Edges.Single(x => x.ParentId == lower.Key && x.ChildId == specification.Key);
-        Assert.AreEqual(lower.Bounds.RightCenter, edge.Start);
+        Assert.AreEqual(lower.Bounds.BottomCenter, edge.Start);
         Assert.AreEqual(specification.Bounds.LeftCenter, edge.End);
     }
 

@@ -6,11 +6,12 @@ button:hover { background: #e2e8f0; }
 .mindmap-canvas { position: relative; min-height: 650px; overflow: hidden; cursor: grab; background-color: white; background-image: radial-gradient(#d8dee9 1px, transparent 1px); background-size: 24px 24px; }
 .mindmap-canvas:active { cursor: grabbing; }
 .mindmap-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.mindmap-content { position: relative; }
 .connectors { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
 .connectors path { fill: none; stroke: #475569; stroke-width: 2; }
-.node { position: absolute; box-sizing: border-box; width: 240px; min-height: 110px; border: 2px solid #111827; border-radius: .75rem; padding: .8rem; box-shadow: 0 8px 18px rgb(15 23 42 / 12%); }
+.node { position: absolute; box-sizing: border-box; border: 2px solid #111827; border-radius: .75rem; padding: .8rem; box-shadow: 0 8px 18px rgb(15 23 42 / 12%); overflow-wrap: anywhere; }
 .node-id { font: 600 .78rem ui-monospace, monospace; }
-.node p { margin: .45rem 0; }
+.node p { margin: .45rem 0; white-space: pre-wrap; }
 .node > button { position: absolute; right: .5rem; bottom: .5rem; width: 1.8rem; height: 1.8rem; padding: 0; border-radius: 50%; }
 .background-node { background: #bfdbfe; }
 .requirement-node { background: #bbf7d0; }

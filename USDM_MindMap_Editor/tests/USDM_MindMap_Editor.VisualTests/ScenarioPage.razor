@@ -1,0 +1,14 @@
+@page "/scenarios/{Scenario}"
+
+@if (ConnectionScenarioFactory.Names.Contains(Scenario))
+{
+    <Home Document="@ConnectionScenarioFactory.Create(Scenario)" />
+}
+else
+{
+    <p>不明な確認ケースです。</p>
+}
+
+@code {
+    [Parameter] public string Scenario { get; set; } = "single";
+}

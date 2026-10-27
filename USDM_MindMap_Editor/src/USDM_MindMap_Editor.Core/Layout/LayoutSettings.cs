@@ -20,6 +20,9 @@ public sealed record LayoutSettings
     public double SiblingGap { get; init; } = DefaultSiblingGap;
     public double LevelGap { get; init; } = DefaultLevelGap;
     public double CanvasMargin { get; init; } = DefaultCanvasMargin;
+    // Initial visual tuning values; distances still adapt to the current rectangles.
+    public double ConnectionBendRatio { get; init; } = 0.5;
+    public double ConnectionClearance { get; init; } = 8;
     public double NodeWidth { get; init; } = DefaultNodeWidth;
     public double LineHeight { get; init; } = DefaultLineHeight;
     public double HorizontalPadding { get; init; } = DefaultHorizontalPadding;
