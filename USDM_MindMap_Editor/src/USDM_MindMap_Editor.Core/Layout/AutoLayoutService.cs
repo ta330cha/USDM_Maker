@@ -22,6 +22,9 @@ public sealed class AutoLayoutService : ILayoutEngine
         var canReuse = previous is not null && request.ChangedBackgroundIds is not null && previous.Settings == settings;
         var previousTrees = previous?.Trees.ToDictionary(tree => tree.BackgroundId, StringComparer.Ordinal)
             ?? new Dictionary<string, BackgroundTreeLayout>(StringComparer.Ordinal);
+        // Keep committed occupancy separate from all placement candidates. Even
+        // after an obstacle moves, pairwise direction uses this fixed snapshot.
+        var previousBounds = previousTrees.ToDictionary(item => item.Key, item => item.Value.Bounds, StringComparer.Ordinal);
         var changed = canReuse ? request.Document.Backgrounds
             .Where(background => request.ChangedBackgroundIds!.Contains(background.Id) || !previousTrees.ContainsKey(background.Id))
             .Select(background => background.Id).ToHashSet(StringComparer.Ordinal) : null;
@@ -45,7 +48,7 @@ public sealed class AutoLayoutService : ILayoutEngine
 
         var positions = request.BackgroundPositions ?? request.Document.View.BackgroundPositions
             .ToDictionary(item => item.Key, item => new LayoutPoint(item.Value.X, item.Value.Y), StringComparer.Ordinal);
-        return new BackgroundPlacementService().Place(trees, positions, request.AnchoredBackgroundId, settings);
+        return new BackgroundPlacementService().Place(trees, positions, request.AnchoredBackgroundId, settings, previousBounds);
     }
 
     private static List<TreeItem> BuildTree(LayoutRequest request, NodeSizePredictor predictor, IReadOnlySet<string>? backgroundIds)

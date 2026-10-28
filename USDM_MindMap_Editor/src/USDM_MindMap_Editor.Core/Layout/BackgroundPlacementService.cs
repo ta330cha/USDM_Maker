@@ -6,7 +6,8 @@ namespace USDM_MindMap_Editor.Core.Layout;
 public sealed class BackgroundPlacementService
 {
     internal LayoutResult Place(IReadOnlyList<BackgroundTreeLayout> trees,
-        IReadOnlyDictionary<string, LayoutPoint> positions, string? anchoredBackgroundId, LayoutSettings settings)
+        IReadOnlyDictionary<string, LayoutPoint> positions, string? anchoredBackgroundId, LayoutSettings settings,
+        IReadOnlyDictionary<string, LayoutRect> previousBounds)
     {
         ValidateSettings(settings);
         var ids = trees.Select(tree => tree.BackgroundId).ToHashSet(StringComparer.Ordinal);
@@ -16,6 +17,7 @@ public sealed class BackgroundPlacementService
             throw new ArgumentException("配置位置が存在しない背景を参照しています。", nameof(positions));
         foreach (var position in positions.Values) ValidatePosition(position);
         foreach (var tree in trees) ValidateTree(tree);
+        foreach (var bounds in previousBounds.Values) ValidateRect(bounds);
 
         var placed = new List<BackgroundTreeLayout>(trees.Count);
         // Saved positions precede missing positions. A changed/inserted source is
@@ -25,7 +27,7 @@ public sealed class BackgroundPlacementService
             .OrderBy(tree => tree.BackgroundId == anchoredBackgroundId ? 0 : 1)
             .ThenBy(tree => tree.Bounds.Y)
             .ThenBy(tree => tree.BackgroundId, UsdmIdRules.NumericSegmentComparer);
-        foreach (var tree in positioned) placed.Add(ResolveBelow(tree, placed, settings.SiblingGap));
+        foreach (var tree in positioned) placed.Add(ResolveCollisions(tree, placed, settings.SiblingGap, previousBounds));
 
         var initialized = new List<string>();
         foreach (var tree in trees.Where(tree => !positions.ContainsKey(tree.BackgroundId))
@@ -35,7 +37,7 @@ public sealed class BackgroundPlacementService
                 : Math.Max(settings.CanvasMargin, placed.Max(other => other.Bounds.Bottom) + settings.SiblingGap);
             var localTop = tree.Bounds.Y - tree.Position.Y;
             var candidate = TranslateTo(tree, new(settings.CanvasMargin, top - localTop));
-            placed.Add(ResolveBelow(candidate, placed, settings.SiblingGap));
+            placed.Add(ResolveCollisions(candidate, placed, settings.SiblingGap, previousBounds));
             initialized.Add(tree.BackgroundId);
         }
 
@@ -62,24 +64,60 @@ public sealed class BackgroundPlacementService
         return new(true, true, result, []);
     }
 
-    private static BackgroundTreeLayout ResolveBelow(BackgroundTreeLayout tree,
-        IReadOnlyList<BackgroundTreeLayout> placed, double gap)
+    private static BackgroundTreeLayout ResolveCollisions(BackgroundTreeLayout tree,
+        IReadOnlyList<BackgroundTreeLayout> placed, double gap, IReadOnlyDictionary<string, LayoutRect> previousBounds)
     {
         var bounds = tree.Bounds;
         var position = tree.Position;
-        // Every move passes the bottom of at least one fixed obstacle. No obstacle
-        // can be encountered again, so this terminates in at most placed.Count moves.
+        // Each positive-axis move passes one fixed obstacle's right or bottom.
+        // Neither coordinate decreases, so a resolved pair cannot collide again:
+        // at most placed.Count moves, with a final full recheck, are required.
         for (var pass = 0; pass <= placed.Count; pass++)
         {
-            var collisions = placed.Where(other => bounds.Intersects(other.Bounds)).ToArray();
-            if (collisions.Length == 0) return TranslateTo(tree, position);
-            var deltaY = collisions.Max(other => other.Bounds.Bottom) + gap - bounds.Y;
-            position = new(position.X, position.Y + deltaY);
-            bounds = bounds.Translate(0, deltaY);
-            ValidatePosition(position);
-            ValidateRect(bounds);
+            // Preserve placement priority when several obstacles intersect. A
+            // move can encounter an earlier obstacle, so always restart the scan.
+            var obstacle = placed.FirstOrDefault(other => bounds.Intersects(other.Bounds));
+            if (obstacle is null) return TranslateTo(tree, position);
+            var deltaX = obstacle.Bounds.Right + gap - bounds.X;
+            var deltaY = obstacle.Bounds.Bottom + gap - bounds.Y;
+            var pushRight = ShouldPushRight(obstacle.BackgroundId, tree.BackgroundId, previousBounds, deltaX, deltaY);
+            // Only the selected axis needs to be representable. Overflow in an
+            // unused alternative must not reject an otherwise valid translation.
+            var selectedDelta = pushRight ? deltaX : deltaY;
+            if (!double.IsFinite(selectedDelta) || selectedDelta <= 0)
+                throw new ArgumentOutOfRangeException(nameof(tree), "背景の押し出し量が計算可能な有限座標の範囲を超えています。");
+            var dx = pushRight ? deltaX : 0;
+            var dy = pushRight ? 0 : deltaY;
+            var nextPosition = new LayoutPoint(position.X + dx, position.Y + dy);
+            var nextBounds = bounds.Translate(dx, dy);
+            ValidatePosition(nextPosition);
+            ValidateRect(nextBounds);
+            // Reject overflow/precision loss instead of looping or accepting a
+            // translation that did not actually clear the selected obstacle.
+            if ((pushRight && (nextPosition.X <= position.X || nextBounds.X < obstacle.Bounds.Right))
+                || (!pushRight && (nextPosition.Y <= position.Y || nextBounds.Y < obstacle.Bounds.Bottom))
+                || (gap > 0 && (pushRight ? nextBounds.X <= obstacle.Bounds.Right : nextBounds.Y <= obstacle.Bounds.Bottom)))
+                throw new ArgumentOutOfRangeException(nameof(tree), "背景を指定方向へ押し出せる座標精度がありません。");
+            position = nextPosition;
+            bounds = nextBounds;
         }
         throw new InvalidOperationException("背景の重複を解消できませんでした。");
+    }
+
+    private static bool ShouldPushRight(string obstacleId, string movingId,
+        IReadOnlyDictionary<string, LayoutRect> previousBounds, double deltaX, double deltaY)
+    {
+        if (previousBounds.TryGetValue(obstacleId, out var beforeA)
+            && previousBounds.TryGetValue(movingId, out var beforeB))
+        {
+            if (beforeB.X >= beforeA.Right && beforeB.Y < beforeA.Bottom && beforeB.Bottom > beforeA.Y)
+                return true;
+            if (beforeB.Y >= beforeA.Bottom && beforeB.X < beforeA.Right && beforeB.Right > beforeA.X)
+                return false;
+        }
+        // Diagonal, invalid prior overlap, left/above, and missing history all use
+        // the current pair's shorter displacement. Equal amounts prefer down.
+        return deltaX < deltaY;
     }
 
     private static BackgroundTreeLayout TranslateTo(BackgroundTreeLayout tree, LayoutPoint position)

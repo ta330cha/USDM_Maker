@@ -207,7 +207,12 @@ public sealed class DocumentEditingSessionTests
         });
 
         Assert.AreEqual(source, session.Layout.BackgroundPositions["002"]);
-        Assert.IsGreaterThan(source.Y, session.Layout.BackgroundPositions["001"].Y);
+        // 001 was above the fixed source, so there is no explicit right/below
+        // relationship. The directional fallback now chooses the shorter right
+        // displacement instead of the former unconditional downward move.
+        var sourceBounds = session.Layout.Trees.Single(tree => tree.BackgroundId == "002").Bounds;
+        Assert.AreEqual(sourceBounds.Right + session.Settings.SiblingGap, session.Layout.BackgroundPositions["001"].X);
+        Assert.AreEqual(0, session.Layout.BackgroundPositions["001"].Y);
         Assert.DoesNotContain("002", session.AutomaticallyMovedBackgroundIds);
         AssertNonOverlapping(session.Layout);
     }

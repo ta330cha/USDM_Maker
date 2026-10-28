@@ -121,7 +121,7 @@ YAML 形式で保存、読み込みを行う。
 | `SpecificationNode` | Core | 仕様、所属先の下位要求 ID、関連下位要求 ID |
 | `IdGenerator` | Core | ID 自動採番 |
 | `AutoLayoutService` | Core | 背景を原点としたツリー内部の自動配置。変更背景だけを再計算し、未変更ツリーを再利用 |
-| `BackgroundPlacementService` | Core | 背景位置と占有範囲の合成、重複検証、衝突方向に応じた右・下への自動移動、ドラッグ確定位置の検証。現行実装は下方移動のみ |
+| `BackgroundPlacementService` | Core | 背景位置と占有範囲の合成、重複検証、変更前矩形による右・下への自動移動、ドラッグ確定位置の検証 |
 | `DocumentEditingSession` | Core / Application Service | 文書・ビュー・背景位置・レイアウトの一括確定、初期補完・補正の通知、操作競合を防ぐリビジョン管理 |
 | `ILayoutEngine` | Core | 暫定案。全体または影響範囲のレイアウト計算を抽象化 |
 | `UsdmYamlSerializer` | Core | 固定順 YAML の保存、読み込み |
@@ -189,11 +189,11 @@ CoreはDOMに依存せず、内部相対座標、背景位置、全ツリーの�
 
 Web層は確定位置と移動候補を分離し、重複表示、取消、ドラッグ後のクリック抑止を担当する。ポインター移動ごとのSignalR通信、全体レイアウト、全DOM測定は行わない。Coreの検証中は確定結果との競合操作を抑止する。保存は確定状態だけを使う。既存の `LayoutRequest`、`LayoutResult`、`AutoLayoutService`、`CanvasState` とビュー保存モデルを拡張し、新規のレイアウトエンジン用インターフェースは追加していない。
 
-現行実装では `LayoutRequest` に既存レイアウト・変更背景ID・固定する背景IDを渡し、`LayoutResult` に背景別の所属ノード・接続線・占有範囲と確定位置、補完・自動移動した背景IDを返す。`BackgroundPlacementService` は操作元を固定して衝突する他ツリーを下へ連鎖移動し、ドラッグ時は他ツリーを動かさず重複候補を拒否する。`DocumentEditingSession` は候補を一括確定し、無効・取消・実質移動なしでは位置変更を作らない。Sessionのリビジョンは古い移動確定を拒否するためのもので、未実装のノード単位 `LayoutRevision` 付き実測キャッシュとは異なる。
+現行実装では `LayoutRequest` に既存レイアウト・変更背景ID・固定する背景IDを渡し、`LayoutResult` に背景別の所属ノード・接続線・占有範囲と確定位置、補完・自動移動した背景IDを返す。`BackgroundPlacementService` は操作元を固定して衝突する他ツリーを方向に応じて右・下へ連鎖移動し、ドラッグ時は他ツリーを動かさず重複候補を拒否する。`DocumentEditingSession` は候補を一括確定し、無効・取消・実質移動なしでは位置変更を作らない。Sessionのリビジョンは古い移動確定を拒否するためのもので、未実装のノード単位 `LayoutRevision` 付き実測キャッシュとは異なる。
 
-2026-10-28の設計変更では、`BackgroundPlacementService` が外接矩形の位置関係から右・下の押し出し方向を選び、必要移動量と連鎖衝突を計算する。方向判定のため、既存の `LayoutRequest.PreviousLayout` から変更前の背景別外接矩形を配置処理へ渡す。現行の `Place` には変更前矩形が渡されていないため、この責務内で入力連携を拡張する。位置関係の補完ルールと式は [LayoutDesign.md](LayoutDesign.md) §7.3を正本とする。
+2026-10-28に、既存の `LayoutRequest.PreviousLayout` から変更前の背景別外接矩形を `Place` へ渡す連携と、方向別の押し出しを実装した。矩形は各 `Calculate` 開始時の確定レイアウトからスナップショット化し、連鎖移動中に上書きしない。予測配置の確定後に行うDOMサイズ補正では、直前の予測確定結果を次の変更前矩形として使う。位置関係の補完ルールと式は [LayoutDesign.md](LayoutDesign.md) §7.3を正本とし、方向不明時の補完は暫定扱いを維持する。
 
-UI・JavaScript側へ方向判定を重複実装しない。`DocumentEditingSession` の一括確定、未変更ツリーの再利用、`TryMove` の重複拒否・復元は維持する。新規のレイアウトエンジン用インターフェースやYAML項目は追加せず、方向と比較用の変更前矩形は実行時情報とする。この方向選択は未実装であり、旧方式の試験結果とは区別する。
+UI・JavaScript側へ方向判定を重複実装しない。`DocumentEditingSession` の一括確定、未変更ツリーの再利用、`TryMove` の重複拒否・復元は維持する。新規のレイアウトエンジン用インターフェースやYAML項目は追加せず、方向と比較用の変更前矩形は実行時情報とする。今回の試験結果・実UI確認範囲は [QA_Q_sheet.md](QA_Q_sheet.md) を参照し、旧方式の検証履歴と区別する。
 
 ### YAML 保存
 

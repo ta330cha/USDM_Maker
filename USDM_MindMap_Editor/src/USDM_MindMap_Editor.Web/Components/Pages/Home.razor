@@ -344,7 +344,7 @@
 
     private string PlacementNotice(string message) => _session.AutomaticallyMovedBackgroundIds.Count == 0
         ? message
-        : $"{message}。背景 {string.Join("、", _session.AutomaticallyMovedBackgroundIds)} を下方へ自動移動しました（配下のノード・接続線を含む）。";
+        : $"{message}。背景 {string.Join("、", _session.AutomaticallyMovedBackgroundIds)} を重複解消のため自動移動しました（配下のノード・接続線を含む）。";
 
     public async ValueTask DisposeAsync()
     {

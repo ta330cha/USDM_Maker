@@ -1,0 +1,75 @@
+@page "/directional/{Scenario}/{ZoomPercent:int}/{ViewMode}"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.VisualTests
+@inject IJSRuntime JS
+
+@if (_document is not null)
+{
+    <div class="directional-test">
+        <Home @key="_document" Document="_document" />
+        <aside @ref="_panel" aria-label="方向別押し出しの読み取り専用診断"
+               style="position:fixed;right:8px;bottom:38px;width:min(440px,calc(100vw - 16px));max-height:43vh;overflow:hidden;z-index:10000;background:rgba(255,255,255,.96);border:1px solid #64748b;padding:8px;font:12px/1.45 monospace;white-space:pre-wrap;pointer-events:none">
+            方向別押し出し診断の起動中（2026-10-28専用）
+        </aside>
+    </div>
+}
+else
+{
+    <p>ケースは right / down、倍率は25 / 100 / 200、表示条件は plain / saved-pan / negative-pan を指定してください。</p>
+}
+
+@code {
+    [Parameter] public string Scenario { get; set; } = "right";
+    [Parameter] public int ZoomPercent { get; set; } = 100;
+    [Parameter] public string ViewMode { get; set; } = "plain";
+    private UsdmDocument? _document;
+    private string? _inputKey;
+    private bool _resetDiagnostics;
+    private ElementReference _panel;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _diagnostics;
+
+    protected override void OnParametersSet()
+    {
+        var key = $"{Scenario}/{ZoomPercent}/{ViewMode}";
+        if (key == _inputKey) return;
+        _inputKey = key;
+        _document = DirectionalScenarioFactory.Names.Contains(Scenario)
+            && DirectionalScenarioFactory.ZoomPercents.Contains(ZoomPercent)
+            && DirectionalScenarioFactory.ViewModes.Contains(ViewMode)
+                ? DirectionalScenarioFactory.Create(Scenario, ZoomPercent, ViewMode) : null;
+        _resetDiagnostics = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_resetDiagnostics) return;
+        _resetDiagnostics = false;
+        if (_diagnostics is not null)
+        {
+            await _diagnostics.InvokeVoidAsync("dispose");
+            await _diagnostics.DisposeAsync();
+            _diagnostics = null;
+        }
+        if (_document is null) return;
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./directionalDiagnostics.js");
+        _diagnostics = await _module.InvokeAsync<IJSObjectReference>("attach", _panel, _inputKey);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_diagnostics is not null)
+            {
+                await _diagnostics.InvokeVoidAsync("dispose");
+                await _diagnostics.DisposeAsync();
+            }
+            if (_module is not null) await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+    }
+}
