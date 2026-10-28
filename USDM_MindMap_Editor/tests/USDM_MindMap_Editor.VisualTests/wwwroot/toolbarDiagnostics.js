@@ -89,6 +89,7 @@ export function attach(panel, fixture) {
             header: {
                 id: header?.id, hidden: header?.hidden ?? null, ariaHidden: header?.getAttribute('aria-hidden'),
                 display: headerStyle?.display, rect: rect(header), renderedControlCount: visibleControls.length,
+                controlLabels: headerControls.map(control => control.textContent.trim()),
                 potentialTabStops: visibleControls.filter(control => !control.disabled && control.tabIndex >= 0 && !control.closest('[inert]')).length,
                 controlRows: rows.size, horizontalOverflow: Boolean(header && header.scrollWidth > header.clientWidth + 1),
                 overlapsToggle: [...(header?.querySelectorAll('strong,button,input,select,a') ?? [])]
@@ -131,6 +132,7 @@ export function attach(panel, fixture) {
             + `toggle=${rectText(sample.toggle.rect)} 固定変換外=${!sample.toggle.insideWorld} focus=${sample.toggle.focused} fv=${sample.toggle.focusVisible}\n`
             + `icon=${sample.toggle.svgIcons.map(icon => `${icon.classes ?? ''} ${icon.transform} ${rectText(icon.rect)}`).join(' / ')}\n`
             + `header hidden=${header.hidden} display=${header.display} Tab候補=${header.potentialTabStops} rows=${header.controlRows}\n`
+            + `メニューDOM順=${header.controlLabels.join(' → ')}\n`
             + `header=${rectText(header.rect)} 横overflow=${header.horizontalOverflow} toggle重複=${header.overlapsToggle}\n`
             + `canvas=${rectText(sample.canvas)} status=${rectText(sample.status.rect)} 画面内=${sample.status.withinViewport}\n`
             + `zoom=${n(sample.zoomPan.zoom)} pan=(${n(sample.zoomPan.panX)},${n(sample.zoomPan.panY)}) rev=${sample.revision} dirty=${sample.dirty}\n`

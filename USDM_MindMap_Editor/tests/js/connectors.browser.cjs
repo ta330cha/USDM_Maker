@@ -3,6 +3,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { resetCanvasForTest } = require('./browserCanvasTestHelpers.cjs');
 const baseUrl = process.env.CONNECTOR_TEST_URL || 'http://127.0.0.1:5189';
 const artifactDir = path.resolve(__dirname, '../../artifacts/indented-layout');
 const scenarios = ['single', 'multiple', 'deep-first-subtree', 'four-level', 'multiple-backgrounds', 'long-text', 'long-expanded'];
@@ -185,9 +186,8 @@ async function verify(page, label) {
             assert.deepEqual(await page.locator('.connectors path').evaluateAll(paths => paths.map(p => p.getAttribute('d'))), originalPaths, 'Pan must not recalculate paths');
             if (scenario === 'multiple-backgrounds') await page.screenshot({ path: path.join(artifactDir, 'multiple-backgrounds-bottom.png') });
 
-            await page.getByRole('button', { name: 'ズームリセット' }).click();
-            await page.waitForFunction(() => document.querySelector('.zoom-status').textContent === '100%');
-            results.push(await verify(page, scenario + ': reset'));
+            await resetCanvasForTest(page);
+            results.push(await verify(page, scenario + ': test-only reset API'));
             if (scenario === 'single' || scenario === 'four-level') await page.screenshot({ path: path.join(artifactDir, scenario + '-100.png') });
         }
 

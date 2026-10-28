@@ -3,6 +3,7 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { resetCanvasForTest } = require('./browserCanvasTestHelpers.cjs');
 const baseUrl = process.env.CONNECTOR_TEST_URL || 'http://127.0.0.1:5189';
 const artifactDir = path.resolve(__dirname, '../../artifacts/elliptical-child-insertion');
 
@@ -184,8 +185,7 @@ async function assertReasonUnchanged(page, key, expectedOpen, label) {
 }
 
 async function setZoom(page, percentage) {
-    await page.getByRole('button', { name: 'ズームリセット', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.zoom-status').textContent === '100%');
+    await resetCanvasForTest(page);
     const canvas = await page.locator('.mindmap-canvas').boundingBox();
     await page.mouse.move(canvas.x + 8, canvas.y + 8);
     for (let i = 0; i < (percentage === 25 ? 8 : percentage === 200 ? 10 : 0); i++)

@@ -28,13 +28,11 @@
     <header class="editor-toolbar" id="@_toolbarId" hidden="@(!_toolbarVisible)">
         <strong>USDM MindMap Editor</strong>
         <div class="toolbar-actions">
-            <button type="button">新規</button>
-            <button type="button">開く</button>
-            <button type="button">保存</button>
-            <button type="button" @onclick="OpenBackgroundAsync">背景追加</button>
-            <button type="button">検索</button>
-            <button type="button">エクスポート</button>
-            <button type="button" @onclick="ResetZoom">ズームリセット</button>
+            <button type="button" tabindex="0">新規</button>
+            <button type="button" tabindex="0">開く</button>
+            <button type="button" tabindex="0">保存</button>
+            <button type="button" tabindex="0">エクスポート</button>
+            <button type="button" tabindex="0" @onclick="OpenBackgroundAsync">背景追加</button>
         </div>
     </header>
 
