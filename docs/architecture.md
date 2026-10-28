@@ -129,9 +129,9 @@ YAML 形式で保存、読み込みを行う。
 | `UsdmYamlReaderFactory` | Core | YAML の `format_version` から対応する読み取り用クラスを選択 |
 | `IUsdmVersionedReader` | Core | 特定の YAML 形式バージョンを現在の内部モデルへ読み込む |
 | `UsdmDocumentMigrator`（概念上の責務） | Core | 現行は形式別ReaderとDTOの変換処理で旧文書を現在の内部モデルへ変換。独立した同名クラスは未分離 |
-| `UsdmTableExporter` | Core | USDM 表への変換とエクスポート用データの生成 |
+| `UsdmTableExporter`（予定・未実装） | Core | USDM 表への変換とエクスポート用データの生成。出力形式・行列はIssue #025で未決定 |
 | `DocumentValidator` | Core | ID 重複、必須項目、上限件数の検証 |
-| `ExportWarningService` | Core | 理由未入力など、エクスポート時の警告を収集 |
+| `ExportWarningService`（予定・未実装） | Core | 理由未入力など、エクスポート時の警告を収集 |
 | `NodeClipboardService` | Web | macOS のコピー、ペースト状態を管理 |
 | `NodeSearchService` | Web | 要求、理由、仕様の検索と一致ノードの特定 |
 | `CanvasState` | Web | ズーム、パン、ビューポート、選択、確定背景位置と一時的な移動候補の区別 |
@@ -256,6 +256,8 @@ Core 層は DOM API に依存しない。Web 層は、ノード種別と ID か�
 
 ### USDM 表エクスポート
 
+以下は予定の処理経路であり、`UsdmTableExporter`・`ExportWarningService` とファイル出力UIは未実装である。Issue #025の形式・行列構成を決定してから具体化する。
+
 ```text
 エクスポートメニュー
   ↓
@@ -341,6 +343,8 @@ YAML 読み込み、新規文書の初回配置、明示的な全体自動整列
 
 ### 上部メニューの折り畳み（2026-10-28実装）
 
+2026-10-28の追加設計では操作群を新規・開く・保存・エクスポート・背景追加の順とし、検索とズームリセットのボタンを削除する。後続実装では `Home.razor` の表示順・操作対象だけを変更し、`ResetZoom()` → JavaScript `resetCanvas` → `CanvasChanged` の既存処理経路を保持する。代替の起動導線は未決定であり、Core・保存形式は変更しない。円形切替ボタンと既存の折り畳み・競合制御も維持する。
+
 表示・非表示、アイコン・操作名、対象のフォーカス可否はWeb UIの責務とする。切替ボタンを折り畳む領域の外へ置き、背景追加やドラッグの対象に含めない。ダイアログ・追加処理・パン・ツリー移動との競合は既存のUI操作制御に接続する。新規のCoreサービスやドメインモデルは追加しない。
 
 表示領域のサイズ・原点が変わった場合はWeb層とキャンバス側JavaScriptでビューポート情報とヒット判定を更新する。Coreのレイアウト再計算、背景位置の補正、文書更新は発生させない。表示状態は永続化方針が決まるまでWeb UIの実行時情報に限定し、`DocumentEditingSession` の未保存変更・履歴やYAMLへ混入させない。具体的な操作は [UI.md](UI.md) §4.1、座標の扱いは [LayoutDesign.md](LayoutDesign.md) §9.6を参照する。
@@ -348,6 +352,14 @@ YAML 読み込み、新規文書の初回配置、明示的な全体自動整列
 `Home.razor` は表示状態と完了・取消待ちを管理し、`WebUiSettings` はボタン寸法の暫定値36px・20px・8pxを保持する。ブラウザの `tryBeginToolbarToggle` が進行中の操作を検証してロックし、再描画後の `completeToolbarToggle` が実DOMと期待する表示状態の一致を確認して解除・ホバー消去・フォーカス復帰を行う。通信切断で応答を確認できない完了・取消は保持し、次の描画後に再試行する。同じキャンバスDOMを使用し、ノード測定・文書更新を起動せず最新の画面矩形で判定する。自動試験とSafariでの一部確認結果、実ポインター・DOM実測完了・切断復旧等の未確認条件は [QA_Q_sheet.md](QA_Q_sheet.md) を参照する。
 
 ## 11. エラーハンドリング
+
+### ファイル操作UIの実装前確認
+
+2026-10-28時点で、新規・開く・保存・エクスポートは `Home.razor` の未接続ボタンである。Coreの `UsdmYamlSerializer.Deserialize`、`DocumentEditingSession` による検証・位置補完、`Serialize` / `MarkSaved` は利用できるが、ファイル選択・ダウンロード・文書切替のUI経路は未実装である。正常系の処理部品が揃っていることと、画面全体の仕様が完了していることは区別する。
+
+未保存時の文書切替、取消・失敗時の旧状態維持、ファイル名と保存済み判定、保存対象の確定・ビュー同期、保存中の後続編集との整合は、Issue #024・026・027とQA D-02・D-05・D-11で判断する。現行の引数なし `MarkSaved()` は保存時点のrevisionを検証しないため、非同期ファイル処理を接続する際に後続編集まで保存済みとしない設計が必要である。未決定事項を仮の破壊的動作で埋めず、[UI.md](UI.md) §4.2の点検結果に従う。
+
+### 検証エラー
 
 想定する検証エラー:
 
