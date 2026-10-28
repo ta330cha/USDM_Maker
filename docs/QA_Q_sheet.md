@@ -4,6 +4,24 @@
 回答者: たなかさん
 回答先: [QA_A_sheet.md](QA_A_sheet.md)
 
+フォルダ整理注記（2026-10-28）: Git・作業・ソリューションのルートを `/Users/Taichiro/work/USDM_Maker` へ統合した。以下のコード・試験・画面記録の参照先は新配置へ更新済みで、`artifacts/` はこのルート直下を指す。過去の成果物は衝突なく統合し、試験日時・環境・件数・合否・未確認事項は変更していない。パス更新を再試験の実施記録として扱わない。
+
+## フォルダ整理の検証（2026-10-28）
+
+これは上記のパス更新とは別に、新しいルートで実施した検証記録である。機能変更は行わず、ランチャーとシェル試験のパス・ログ保存先だけを修正した。
+
+| 確認 | 結果・範囲 |
+|---|---|
+| 退避・移動 | 停止承認後にワークスペース全体（`.git`、管理外のPDF・ログ・試験画像を含む）を外部の復旧用フォルダへ複製し、内容一致を確認。移動直後は1,200ファイルをSHA-256で照合し、欠落・上書きなし。不要候補・親側補助シェル・旧bin/objは退避し、空になった内包階層のみ除去 |
+| Git | 移動前後でHEAD `9fc5d55`、main、参照・リモート設定を維持。Gitルートは共通ルートへ移動。`git fsck --full`・`git diff --check`成功。コミット・pushなし |
+| .NET | 旧bin/objを使用せず `dotnet restore`、`dotnet build`、`dotnet test`成功。Core188件成功、失敗・スキップ0、ビルド警告・エラー0。ソリューション外のVisualTestsも単独build成功 |
+| JavaScript・起動シェル | `node --test tests/js/*.test.mjs tests/shell/*.test.mjs` 61件成功（JS55件・シェル6件）。`bash -n run-usdm.sh`、`--help`成功。シェルの実行権限を保持 |
+| 通常起動・ログ保存 | 新ルートで通常起動（5237）、別cwd `/tmp` から絶対パスで `--log` 起動（5238）し、両方HTTP 200。初回は `--no-build` を使わず、Control+Cで終了コード0・ポート解放を確認。ログは共通ルートの `logs/` に600権限で保存され、停止ログを含む。既存ログのSHA-256は変更なし |
+| 静的ファイル・Safari | 通常アプリと確認用ホスト（5191）でCSS・JavaScriptのHTTP 200とMIME型を確認。Safariの新規検証タブで色付きノード・接続線・5ボタンを表示し、通常アプリのメニュー開閉と背景ダイアログ起動・Escape取消、確認用ホストのメニュー折り畳みと状態保持を確認。新ルートから生成したscoped CSSとJavaScriptを使用 |
+| 管理対象 | `.gitignore`により `logs`・`artifacts`・`bin`・`obj` が引き続き除外されることを確認。旧絶対パスは新しいソース・ビルド設定/生成JSON等に残存なし。文書のローカルリンクも新配置で確認 |
+
+Safariは `visibility=hidden` と報告していたため、DOM実測補正完了、実ポインターでのドラッグ・パンなどの全面的な機能回帰は今回の合格範囲に含めない。今回はフォルダ整理後の起動・静的ファイル・代表操作の確認であり、過去の未確認事項を解消した扱いにしない。既存のHTTP起動時HTTPSポート警告は再現したが、設定変更は行っていない。画面・AX記録は `artifacts/folder-reorganization-2026-10-28/` に保存した。確認用に起動したサーバーは終了済みで、利用再開時は共通ルートの `./run-usdm.sh` を実行する。IDE等で旧ルートを開いている場合は共通ルートで開き直す。
+
 ## 1. 目的と回答方法
 
 本書は、既存設計と現行実装をもとに、たなかさん側で判断する利用上の仕様、UI評価、試験条件、受け入れ条件を整理する。質問番号は本票専用であり、Issue番号ではない。
@@ -247,7 +265,7 @@ v1.0の出力を`.xlsx`、`.csv`、両方のどれにするか。背景、上位
 
 **未確認条件:** Safariの可視状態と操作ツールの接続が安定せず、実ポインターの途中で`noWindowsAvailable`が再発した。利用者に前面表示を依頼し、操作対象を再取得しても解消しなかったため、成功した上記3操作以外を合格としない。切替・実パン後の空白ダブルクリック／保存位置、25%・200%での実パン・背景ドラッグ・楕円判定、実ホバーからの残留解除と再ホバー、ドラッグ中・追加送信中の同時切替、極端に低い画面、VoiceOver音声読み上げ、通信切断・再接続は未確認。座標・競合・ホバーのロジックは上記JS試験で確認したが、実UI試験の代用とはしない。`visibility=hidden`だったケースのDOM実測補正完了も保証しない。
 
-確認専用ページは`/toolbar/{25|100|200}/{plain|saved-pan}/{wide|narrow}`。診断はDOMの読取と自身の表示だけを行い、製品の操作・座標・フォーカスを変更しない。診断によるノード情報の読み取りを製品側の測定処理と混同しない。今回の画面・AX記録は`artifacts/toolbar-collapse-2026-10-28/`（Git対象外）へ分離した。再現手順は`USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。正式寸法・表示状態の永続化は既存の未採番項目として継続し、新規Issue番号は採番していない。
+確認専用ページは`/toolbar/{25|100|200}/{plain|saved-pan}/{wide|narrow}`。診断はDOMの読取と自身の表示だけを行い、製品の操作・座標・フォーカスを変更しない。診断によるノード情報の読み取りを製品側の測定処理と混同しない。今回の画面・AX記録は`artifacts/toolbar-collapse-2026-10-28/`（Git対象外）へ分離した。再現手順は`tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。正式寸法・表示状態の永続化は既存の未採番項目として継続し、新規Issue番号は採番していない。
 
 #### 背景追加・ツリー全体移動の受け入れ項目（2026-10-27実装・Safari一部確認）
 
@@ -275,7 +293,7 @@ v1.0の出力を`.xlsx`、`.csv`、両方のどれにするか。背景、上位
 | 実ポインター操作・性能 | 未確認。Safari座標ドラッグが操作ツールの`noWindowsAvailable`で失敗したため、空白ダブルクリック、ドラッグの有効／無効ドロップ・取消・復元、実パン後の操作、楕円との実ヒット境界、非アクティブ化往復、FPS・体感を今回の画面合格範囲に含めない |
 | Chrome | たなかさんのSafari指定に従い、使用・ダウンロードとも行わない |
 
-画面記録はリポジトリ直下の`artifacts/background-positioning/`（Git対象外）に保存した。確認手順は`USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。大量データでの移動量・可読性・収束時間の評価、T-03〜T-05の正式性能測定は未実施であり、全受け入れ完了とはしない。本文編集・削除UI、Undo / Redoの履歴範囲、保存・開くUIは今回追加していない。
+画面記録はリポジトリ直下の`artifacts/background-positioning/`（Git対象外）に保存した。確認手順は`tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。大量データでの移動量・可読性・収束時間の評価、T-03〜T-05の正式性能測定は未実施であり、全受け入れ完了とはしない。本文編集・削除UI、Undo / Redoの履歴範囲、保存・開くUIは今回追加していない。
 
 #### 衝突方向に応じた押し出し（2026-10-28実装・Core試験済・Safari一部確認）
 
@@ -313,7 +331,7 @@ Safariでは新設の`/directional/{right|down}/{25|100|200}/{plain|saved-pan|ne
 
 **今回の未確認範囲:** Safariは画面を取得できる一方で`visibility=hidden`と報告され、座標ドラッグも操作ツールの`noWindowsAvailable`で失敗した。実ポインターによるパン・ドラッグ・無効ドロップ復元・取消・非アクティブ化往復、DOM実測補正の完了、画面外領域の表示、FPS・体感は今回の実UI合格範囲に含めない。保存パンを持つページでの確認と実際のパン操作を区別する。混合方向連鎖、斜め等の暫定補完、線幅境界、反対方向の方が短い場合はCore確認までで、Safariでの利用評価は未実施。Chromeはたなかさんの指定により使用・ダウンロードしていない。
 
-今回の画面記録はリポジトリ直下の`artifacts/directional-placement-2026-10-28/`（Git対象外）へ保存し、旧`background-positioning/`の記録を流用していない。再現手順は`USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。新方式の大量データでの移動量・連鎖時間・可読性はT-03〜T-05へ残し、方向不明時の補完ルールの確定と実UI評価は既存Issue #005で継続する。QA・Issueの新規番号は採番しない。保存・開くUI、本文編集・削除UI、Undo / Redoは今回追加していない。
+今回の画面記録はリポジトリ直下の`artifacts/directional-placement-2026-10-28/`（Git対象外）へ保存し、旧`background-positioning/`の記録を流用していない。再現手順は`tests/USDM_MindMap_Editor.VisualTests/README.md`を参照する。新方式の大量データでの移動量・連鎖時間・可読性はT-03〜T-05へ残し、方向不明時の補完ルールの確定と実UI評価は既存Issue #005で継続する。QA・Issueの新規番号は採番しない。保存・開くUI、本文編集・削除UI、Undo / Redoは今回追加していない。
 
 以下は以前の機能の検証履歴として保持する。
 
@@ -348,7 +366,7 @@ Safariでは新設の`/directional/{right|down}/{25|100|200}/{plain|saved-pan|ne
 | Safari・実ポインター／輪郭／変換後表示 | 未確認項目あり。座標クリックが操作ツールの`noWindowsAvailable`で失敗し、確認中のページが`visibilityState=hidden`として扱われるため、ポインター起点の内外6条件、新しいホバー、前面時の輪郭、Tab／Shift+Tab到達、25%・200%・パン・理由開閉・非アクティブ化往復を通した表示は今回の合格範囲に含めない |
 | Chrome | 利用者の「検証する場合はSafari」の指定に従い、今回は使用・ダウンロードとも行っていない |
 
-Safariの通常再読み込みでは旧CSS／JavaScriptが残ったため、Option+Command+Rで再読み込みしてから修正後を確認した。確認専用ホストの`/feedback`へ、疑似クラス・DOMフォーカス・計算済み背景色・輪郭・入力イベントを読み取る診断ページを追加した。本番アプリには搭載せず、アプリの表示状態を診断側で変更しない。実行と残項目の手動確認手順は `USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md`、修正後の画面は `USDM_MindMap_Editor/artifacts/child-add-feedback/safari-after-cancel.png`（Git対象外）に記録した。Chromium用の既存回帰スクリプトはツールチップの取得元を更新して構文確認のみ実施し、今回は実行していない。残項目があるため全受け入れ条件の完了とはしない。次項以降は従来の検証履歴として保持する。
+Safariの通常再読み込みでは旧CSS／JavaScriptが残ったため、Option+Command+Rで再読み込みしてから修正後を確認した。確認専用ホストの`/feedback`へ、疑似クラス・DOMフォーカス・計算済み背景色・輪郭・入力イベントを読み取る診断ページを追加した。本番アプリには搭載せず、アプリの表示状態を診断側で変更しない。実行と残項目の手動確認手順は `tests/USDM_MindMap_Editor.VisualTests/README.md`、修正後の画面は `artifacts/child-add-feedback/safari-after-cancel.png`（Git対象外）に記録した。Chromium用の既存回帰スクリプトはツールチップの取得元を更新して構文確認のみ実施し、今回は実行していない。残項目があるため全受け入れ条件の完了とはしない。次項以降は従来の検証履歴として保持する。
 
 #### 楕円による子ノード追加UIの検証（2026-10-27）
 
@@ -358,7 +376,7 @@ Safariの通常再読み込みでは旧CSS／JavaScriptが残ったため、Opti
 
 3種類の子追加と背景追加、空白入力エラー、理由省略、仕様の関連先、キャンセル・連打、ダイアログのTab循環・Escape・フォーカス復帰も再確認した。楕円のホバー画面を25%・100%・200%で確認し、ズームや領域外へのドラッグ後に補助強調が残らないことも試験した。ブラウザエラーはなかった。ポインターキャンセルのみ、Playwrightの実デバイス操作で発生させられないため合成イベントを使用した。
 
-`dotnet restore`、`dotnet build`（警告・エラー0）、`dotnet test`（Core77件）、JavaScript19件が成功した。既存の配置・接続線の7シナリオ42チェックも成功した。Coreの採番・入力検証・レイアウトとダイアログ本体は変更せず、YAML構造と`format_version=2`を維持した。画像・計測結果は `USDM_MindMap_Editor/artifacts/elliptical-child-insertion/`（Git対象外）へ保存し、旧4px帯の `artifacts/child-insertion/` は別に保持した。再実行方法は確認ホストのREADMEを参照する。
+`dotnet restore`、`dotnet build`（警告・エラー0）、`dotnet test`（Core77件）、JavaScript19件が成功した。既存の配置・接続線の7シナリオ42チェックも成功した。Coreの採番・入力検証・レイアウトとダイアログ本体は変更せず、YAML構造と`format_version=2`を維持した。画像・計測結果は `artifacts/elliptical-child-insertion/`（Git対象外）へ保存し、旧4px帯の `artifacts/child-insertion/` は別に保持した。再実行方法は確認ホストのREADMEを参照する。
 
 Safari、macOS日本語IME・実トラックパッド、たなかさんの日常画面での操作感、局所再計算・大規模データ性能は引き続き未評価である。
 
@@ -372,13 +390,13 @@ Enter/Spaceによる追加、Tab/Shift+Tabのダイアログ内循環、保存�
 
 `dotnet restore`、`dotnet build`（警告・エラー0）、`dotnet test`（Core全77件、追加ユースケース26件を含む）、JavaScript9件が成功した。Coreでは各種類の親・関連・必須入力・65535件での採番枯渇時に文書が不変であること、追加後のYAML往復と `format_version=2` 維持、必要な後続サブツリー位置の更新を検証した。既存の配置・接続線の7ケース42チェックも再実行して成功した。
 
-新しい画像・結果は `USDM_MindMap_Editor/artifacts/child-insertion/`（Git対象外）、試験は `tests/js/childInsertion.browser.cjs` に保存する。再実行方法は確認ホストのREADMEを参照する。Safari、macOS日本語IME・実トラックパッド、たなかさんの画面環境での操作感、局所再計算・大規模データ性能は未評価であり、今回の合格結果には含めない。
+新しい画像・結果は `artifacts/child-insertion/`（Git対象外）、試験は `tests/js/childInsertion.browser.cjs` に保存する。再実行方法は確認ホストのREADMEを参照する。Safari、macOS日本語IME・実トラックパッド、たなかさんの画面環境での操作感、局所再計算・大規模データ性能は未評価であり、今回の合格結果には含めない。
 
 #### 旧横方向配置の検証履歴
 
 以下は下方インデント配置へ変更する前の実装確認履歴であり、新配置の試験結果ではない。新方式の再試験結果は次項へ分けて記録する。
 
-2026-10-27 実装確認: macOS / Chromium 151.0.7922.34（Playwright、1700×1100）で、本番 `Home` を再利用した確認ホストの7ケース（単一の子、複数の子、親より上側の子、4階層、複数背景、長文、理由展開）を検証した。25%・200%ズーム、パン、リセット、長い理由の開閉3往復を含む42チェックが成功し、実DOM境界との接続、全ノードへの非交差、SVG内の曲線範囲を確認した。画面画像でも下側の張り出しと複数背景の最下部を確認した。再実行方法は `USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md`、画像・計測結果は同プロジェクトの `artifacts/connection-lines/`（Git対象外）にある。
+2026-10-27 実装確認: macOS / Chromium 151.0.7922.34（Playwright、1700×1100）で、本番 `Home` を再利用した確認ホストの7ケース（単一の子、複数の子、親より上側の子、4階層、複数背景、長文、理由展開）を検証した。25%・200%ズーム、パン、リセット、長い理由の開閉3往復を含む42チェックが成功し、実DOM境界との接続、全ノードへの非交差、SVG内の曲線範囲を確認した。画面画像でも下側の張り出しと複数背景の最下部を確認した。再実行方法は `tests/USDM_MindMap_Editor.VisualTests/README.md`、画像・計測結果は同プロジェクトの `artifacts/connection-lines/`（Git対象外）にある。
 
 サイズ再描画でズーム変換が消える問題も修正済み。Core40件、JavaScript4件のテストが成功した。Safariおよびたなかさんの日常使用画面での可読性評価は未実施。従来配置では長文・上側の子が多い場合に曲線の下への張り出しと縦の占有量が大きかった。新方式はすべての子を親の下へ置くため、旧方式の形状調整をそのまま適用せず、占有量と可読性を改めて評価する。
 
@@ -390,7 +408,7 @@ macOS / Chromium 151.0.7922.34（Playwright、1700×1100）で、実 `Home` を�
 
 `dotnet restore`、`dotnet build`（警告・エラー0）、`dotnet test`（Core全51件）、JavaScript4件が成功した。Coreでは幅240/280/320px、カスタム間隔、DOM実測相当の幅・高さ変更、長い理由の開閉後の後続兄弟移動、ランダムな高さ、YAML構造と `format_version=2` の維持も検証した。幅3候補の確認は幾何計算の試験であり、D-13の正式幅を決めるUI比較ではない。
 
-画像・計測結果は `USDM_MindMap_Editor/artifacts/indented-layout/`（Git対象外）へ保存し、旧 `artifacts/connection-lines/` は別に保持した。再実行方法は `USDM_MindMap_Editor/tests/USDM_MindMap_Editor.VisualTests/README.md` に記載する。Safari、たなかさんの日常使用画面での可読性、局所再計算と2,000ノードの性能確認は残課題である。
+画像・計測結果は `artifacts/indented-layout/`（Git対象外）へ保存し、旧 `artifacts/connection-lines/` は別に保持した。再実行方法は `tests/USDM_MindMap_Editor.VisualTests/README.md` に記載する。Safari、たなかさんの日常使用画面での可読性、局所再計算と2,000ノードの性能確認は残課題である。
 
 ウィンドウサイズ変更時に注目位置やズームを維持するか。新規文書を開いた際の既定ビューで必要なノードが見えるかも確認する。Fit All / Fit Selectionのv1.0追加は本項目で暗黙に採用せず、F-02に残す。
 
@@ -482,7 +500,7 @@ v1.0の利用感を確認後、self-contained配布、Google Drive連携、配�
 
 参照した設計書は [requirements_specification.md](requirements_specification.md)、[architecture.md](architecture.md)、[DataModel.md](DataModel.md)、[UI.md](UI.md)、[LayoutDesign.md](LayoutDesign.md)、[issues.md](issues.md)、[development_environment_setup.md](development_environment_setup.md) である。
 
-現行実装は [LayoutSettings.cs](../USDM_MindMap_Editor/src/USDM_MindMap_Editor.Core/Layout/LayoutSettings.cs)、[UsdmYamlSerializer.cs](../USDM_MindMap_Editor/src/USDM_MindMap_Editor.Core/Serialization/UsdmYamlSerializer.cs)、[UsdmDocumentValidator.cs](../USDM_MindMap_Editor/src/USDM_MindMap_Editor.Core/Validation/UsdmDocumentValidator.cs)、[Home.razor](../USDM_MindMap_Editor/src/USDM_MindMap_Editor.Web/Components/Pages/Home.razor) とCoreテストを確認した。
+現行実装は [LayoutSettings.cs](../src/USDM_MindMap_Editor.Core/Layout/LayoutSettings.cs)、[UsdmYamlSerializer.cs](../src/USDM_MindMap_Editor.Core/Serialization/UsdmYamlSerializer.cs)、[UsdmDocumentValidator.cs](../src/USDM_MindMap_Editor.Core/Validation/UsdmDocumentValidator.cs)、[Home.razor](../src/USDM_MindMap_Editor.Web/Components/Pages/Home.razor) とCoreテストを確認した。
 
 開発側は、質問への回答を仕様・試験ケースへ反映し、画面のファイル操作と編集操作、局所再レイアウト、変更ノードに限定した実測・キャッシュ、測定用データと性能計測を実装する。HTMLノード＋SVGの正式位置づけや形式別Readerの分離時期など、資料と実装の技術上の表現差も開発側で整理する。
 

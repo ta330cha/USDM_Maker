@@ -18,19 +18,31 @@
 
 ## 3. ソリューション構成
 
-推奨構成:
+現在の構成（2026-10-28のフォルダ整理後）:
 
 ```text
-USDM_Maker/ (ワークスペースの最上位フォルダ)
+USDM_Maker/ (Git・作業・ソリューション共通のルート)
+  .git/
+  .gitignore
   USDM_MindMap_Editor.sln
+  Directory.Build.props
   global.json
+  run-usdm.sh
   src/
     USDM_MindMap_Editor.Core/
     USDM_MindMap_Editor.Web/
   tests/
     USDM_MindMap_Editor.Core.Tests/
+    USDM_MindMap_Editor.VisualTests/ (確認専用ホスト、ソリューション外)
+    js/
+    shell/
   docs/
+  sample/
+  artifacts/ (Git対象外の画面・計測記録)
+  logs/ (Git対象外の起動ログ)
 ```
+
+ローカルのルートは `/Users/Taichiro/work/USDM_Maker`。二重ルートとソリューション専用の内包フォルダを解消し、上記をすべて直下へ統合した。物理フォルダの整理であり、ソリューション・プロジェクト名と名前空間は `USDM_MindMap_Editor` のまま変更しない。
 
 | プロジェクト | 役割 |
 |---|---|

@@ -6,13 +6,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const launcher = fileURLToPath(new URL('../../../run-usdm.sh', import.meta.url));
+const launcher = fileURLToPath(new URL('../../run-usdm.sh', import.meta.url));
 
 function fixture(action) {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), 'usdm launcher test ')));
     const repo = join(directory, 'repository with spaces');
     const fakeBin = join(directory, 'fake bin');
-    const projectDirectory = join(repo, 'USDM_MindMap_Editor/src/USDM_MindMap_Editor.Web');
+    const projectDirectory = join(repo, 'src/USDM_MindMap_Editor.Web');
     mkdirSync(projectDirectory, { recursive: true });
     mkdirSync(fakeBin);
     copyFileSync(launcher, join(repo, 'run-usdm.sh'));
@@ -29,7 +29,7 @@ exit "$USDM_LAUNCHER_TEST_EXIT"
         cwd: tmpdir(), encoding: 'utf8',
         env: { ...process.env, PATH: `${fakeBin}:/usr/bin:/bin`, CDPATH: '/', USDM_LAUNCHER_TEST_EXIT: '0', ...extraEnv }
     });
-    try { action({ directory, repo, projectDirectory, run, logs: join(directory, 'logs') }); }
+    try { action({ directory, repo, projectDirectory, run, logs: join(repo, 'logs') }); }
     finally { rmSync(directory, { recursive: true, force: true }); }
 }
 

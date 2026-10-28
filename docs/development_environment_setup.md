@@ -15,7 +15,7 @@ USDM_MindMap_Editor は、USDM の要求仕様をマインドマップ形式で�
 - シェル: zsh
 - 開発方式: ローカルの ASP.NET Core Web アプリケーションとして起動し、ブラウザで閲覧する
 - 初期開発では Docker を必須にしない
-- プロジェクトルートは `/Users/Taichiro/work/USDM_Maker/USDM_Maker` とする
+- Git・作業・ソリューション共通のルートは `/Users/Taichiro/work/USDM_Maker` とする
 - 初期実装の保存形式は YAML とする
 - 開発初期は `dotnet run` で起動する
 - 配布段階では self-contained publish を検討する
@@ -144,27 +144,47 @@ code --version
 
 ## 7. リポジトリ確認
 
-作業ルートへ移動する。
+リポジトリルートへ移動する。2026-10-28のフォルダ整理でGit管理領域とソリューションを同じルートへ統合した。
 
 ```zsh
-cd /Users/Taichiro/work/USDM_Maker/USDM_Maker
+cd /Users/Taichiro/work/USDM_Maker
 ```
 
-現時点の主な構成:
+現在の主な構成:
 
 ```text
-/Users/Taichiro/work/USDM_Maker/USDM_Maker/
+/Users/Taichiro/work/USDM_Maker/
+  .git/
+  .gitignore
+  USDM_MindMap_Editor.sln
+  Directory.Build.props
+  global.json
+  run-usdm.sh
+  src/
+    USDM_MindMap_Editor.Core/
+    USDM_MindMap_Editor.Web/
+  tests/
+    USDM_MindMap_Editor.Core.Tests/
+    USDM_MindMap_Editor.VisualTests/
+    js/
+    shell/
   docs/
     requirements_specification.md
     issues.md
+  sample/
+    simple.usdm.yaml
+  artifacts/ (Git対象外)
+  logs/ (Git対象外)
 ```
 
-## 8. プロジェクト作成予定手順
+内包するソリューション専用フォルダは設けず、上記ルートでビルド・テスト・起動する。フォルダ名は `USDM_Maker`、ソリューション・プロジェクト名と名前空間は `USDM_MindMap_Editor` のままとする。
 
-実装開始時点で、以下のような構成を作成する想定。
+## 8. 初期プロジェクト作成手順（参考）
+
+以下は初期作成時の構成・コマンド案を参照用に残したもので、既存リポジトリでの再実行は不要である。実行位置の記載だけを現在の共通ルートへ揃えている。既存環境の確認・起動は§10を使用する。
 
 ```text
-/Users/Taichiro/work/USDM_Maker/USDM_Maker/
+/Users/Taichiro/work/USDM_Maker/
   USDM_MindMap_Editor.sln
   global.json
   src/
@@ -177,7 +197,7 @@ cd /Users/Taichiro/work/USDM_Maker/USDM_Maker
 作成コマンド案:
 
 ```zsh
-cd /Users/Taichiro/work/USDM_Maker/USDM_Maker
+cd /Users/Taichiro/work/USDM_Maker
 mkdir -p src tests
 
 dotnet new globaljson --sdk-version 10.0.103 --roll-forward latestFeature
@@ -219,15 +239,17 @@ dotnet add src/USDM_MindMap_Editor.Core/USDM_MindMap_Editor.Core.csproj package 
 
 ## 10. 起動・確認手順
 
-プロジェクト作成後の基本確認コマンド。
+共通ルートで実行する基本確認コマンド。
 
 ```zsh
-cd /Users/Taichiro/work/USDM_Maker/USDM_Maker
+cd /Users/Taichiro/work/USDM_Maker
 dotnet restore
 dotnet build
 dotnet test
 dotnet run --project src/USDM_MindMap_Editor.Web
 ```
+
+通常のローカル動作確認は同じルートで `./run-usdm.sh` を実行してもよい。Git管理するランチャー本体はルートの1ファイルだけで、旧補助シェルは使用しない。`--log` を付けた場合の保存先はルートの `logs/`。既定ポート・オプション・停止方法は [README.md](README.md) の「ローカル動作確認」を参照する。
 
 起動後、コンソールに表示される URL をブラウザで開く。
 
@@ -242,12 +264,12 @@ https://localhost:5001
 
 ## 11. 開発用データ
 
-初期開発では、`docs/requirements_specification.md` の YAML 例をもとにサンプルデータを作成する。
+サンプルデータは共通ルートの `sample/` に配置する。`docs/requirements_specification.md` の YAML 例も参照する。
 
-配置候補:
+現在の配置:
 
 ```text
-/Users/Taichiro/work/USDM_Maker/USDM_Maker/sample/
+/Users/Taichiro/work/USDM_Maker/sample/
   simple.usdm.yaml
 ```
 
@@ -356,6 +378,6 @@ dotnet dev-certs https --trust
 
 - self-contained publish 時の起動スクリプト内容
 - 配布 README の内容
-- サンプル YAML の配置場所
+- 配布物に同梱するサンプル YAML の配置場所
 - YAML ライブラリの正式採用
 - Playwright による UI 自動テストの具体的な対象操作

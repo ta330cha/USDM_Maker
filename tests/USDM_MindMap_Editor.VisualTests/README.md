@@ -2,11 +2,14 @@
 
 本番の `Home` コンポーネント、CSS、JavaScript、Interactive Server、Core の接続線計算を再利用する確認専用ホストです。確認用の文書は Core テストと共有します。本番にシナリオ選択機能は追加しません。
 
-プロジェクトルート `USDM_MindMap_Editor` から起動します。
+Git・作業・ソリューション共通のリポジトリルート `/Users/Taichiro/work/USDM_Maker` から起動します。本書の実行コマンドと `artifacts/` などの保存先は、すべてこのルートを基準とします。
 
 ```bash
+cd /Users/Taichiro/work/USDM_Maker
 dotnet run --project tests/USDM_MindMap_Editor.VisualTests/USDM_MindMap_Editor.VisualTests.csproj --urls http://127.0.0.1:5189
 ```
+
+2026-10-28のフォルダ整理で `src`、`tests`、`sample`、`docs`、ソリューションをリポジトリ直下へ統合しました。確認用ホストとプロジェクトの名前は変更していません。過去の画面・計測記録は直下の `artifacts/` へ衝突なく統合して保持しています。以下の過去試験の件数・結果は移動前の検証履歴であり、パス変更による再試験済みの記録ではありません。
 
 `http://127.0.0.1:5189/scenarios/single` をブラウザで開きます。末尾を次の名前に変更して各ケースを確認します。
 
@@ -24,7 +27,7 @@ dotnet run --project tests/USDM_MindMap_Editor.VisualTests/USDM_MindMap_Editor.V
 
 ## ブラウザ回帰確認
 
-Playwright（Chromiumをインストール済み）が必要です。ホスト起動中に別のターミナルで、プロジェクトルートから実行します。通常のNodeモジュール解決でPlaywrightを読み込める場合、環境変数は省略できます。
+Playwright（Chromiumをインストール済み）が必要です。ホスト起動中に別のターミナルで、リポジトリルートから実行します。通常のNodeモジュール解決でPlaywrightを読み込める場合、環境変数は省略できます。
 
 ```bash
 PLAYWRIGHT_MODULE=/path/to/node_modules/playwright node tests/js/connectors.browser.cjs
@@ -107,7 +110,7 @@ node --test tests/js/mindmapCanvas.test.mjs
 
 ### 関連する JavaScript 単体試験
 
-プロジェクトルートから次を実行します。キャンバス25件・ダイアログ4件、計29件が対象です。DOM ダブルによる状態・イベント制御の試験であり、Safari の実際の塗り・輪郭・入力挙動の確認を置き換えるものではありません。
+リポジトリルートから次を実行します。キャンバス25件・ダイアログ4件、計29件が対象です。DOM ダブルによる状態・イベント制御の試験であり、Safari の実際の塗り・輪郭・入力挙動の確認を置き換えるものではありません。
 
 ```bash
 node --test tests/js/mindmapCanvas.test.mjs tests/js/nodeInputDialog.test.mjs
@@ -149,7 +152,7 @@ string outputYaml = session.Serialize(serializer);
 
 Serializerへ直接、背景位置が不足する文書を渡して保存すると「保存前に背景の配置位置を確定してください」という検証エラーになります。Serializer内で初期配置を行うことはありません。保存文字列の生成は入力文書を書き換えず、実際の保存処理が成功する前に `MarkSaved()` を呼ばないでください。
 
-Core試験はプロジェクトルートから実行します。
+Core試験はリポジトリルートから実行します。
 
 ```bash
 dotnet test tests/USDM_MindMap_Editor.Core.Tests/USDM_MindMap_Editor.Core.Tests.csproj

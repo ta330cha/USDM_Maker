@@ -7,7 +7,7 @@ usage() {
         'USDM MindMap Editor 動作確認用ランチャー' \
         '使い方: ./run-usdm.sh [--log] [--port PORT] [--no-build]' \
         '' \
-        '  --log, --logs  標準出力・標準エラーを親フォルダの logs へ保存' \
+        '  --log, --logs  標準出力・標準エラーをプロジェクト直下の logs へ保存' \
         '                動作ログはファイルのみへ出力（通常は端末へ表示）' \
         '  --port PORT    HTTPポート番号（既定: 5223、接続先: 127.0.0.1）' \
         '  --no-build     前回のビルド結果を使う。初回・コード変更後は指定不要' \
@@ -42,8 +42,7 @@ port=$((10#$port))
     || fail 'ポート番号は1〜65535の整数にしてください。' 2
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || exit 1
-workspace_dir=$(CDPATH= cd -- "$script_dir/.." && pwd -P) || exit 1
-project="$script_dir/USDM_MindMap_Editor/src/USDM_MindMap_Editor.Web/USDM_MindMap_Editor.Web.csproj"
+project="$script_dir/src/USDM_MindMap_Editor.Web/USDM_MindMap_Editor.Web.csproj"
 [ -f "$project" ] || fail "Webプロジェクトが見つかりません: $project"
 command -v dotnet >/dev/null 2>&1 || fail '.NET 10 SDKのdotnetコマンドがPATHにありません。'
 
@@ -58,7 +57,7 @@ cd -- "$(dirname -- "$project")" || exit 1
 printf 'USDM MindMap Editor（Development）\nURL: %s\n停止: Control+C\n' "$url"
 
 if "$save_log"; then
-    log_dir="$workspace_dir/logs"
+    log_dir="$script_dir/logs"
     umask 077
     mkdir -p -- "$log_dir" || fail "ログフォルダを作成できません: $log_dir"
     log_file="$log_dir/usdm-$(TZ=Asia/Tokyo date '+%Y%m%d-%H%M%S')-$$.log"

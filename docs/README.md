@@ -26,7 +26,7 @@ USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の
 
 ## ローカル動作確認（macOS）
 
-.NET 10 SDKを用意し、作業フォルダから起動する。
+.NET 10 SDKを用意し、Git・作業・ソリューション共通のルートから起動する。
 
 ```bash
 cd /Users/Taichiro/work/USDM_Maker
@@ -36,7 +36,7 @@ cd /Users/Taichiro/work/USDM_Maker
 Safariで `http://127.0.0.1:5223` を開く。起動対象は確認専用ホストではなく通常のWebアプリで、既定では復元・ビルドも実行する。停止は同じターミナルで `Control+C` とする。既存の別サーバーは停止せず、ポートが使用中の場合は `--port 5230` 等を指定する。
 
 ```bash
-# 既存の標準出力・標準エラーを作業フォルダの logs へ保存
+# 既存の標準出力・標準エラーをリポジトリ直下の logs へ保存
 ./run-usdm.sh --log
 
 # ビルド済みのアプリを別ポートで起動
@@ -49,9 +49,15 @@ Safariで `http://127.0.0.1:5223` を開く。起動対象は確認専用ホス�
 
 現在のログ設定は `Default=Information`、`Microsoft.AspNetCore=Warning`。ノード操作ごとの監査ログやブラウザのJavaScriptコンソール収集は実装されておらず、本ランチャーも追加しない。ログは例外情報・ローカルパス等を含む可能性があるためGit対象外とする。
 
-既存のHTTPSリダイレクト処理により、HTTP起動では `Failed to determine the https port for redirect.` という警告が記録される場合がある。今回の確認では両モードでHTTP 200とControl+C後のポート解放を確認した。ランチャーの追加に伴うアプリ側のHTTPS設定変更は行っていない。CLI自動試験はソリューションフォルダで `node --test tests/shell/*.test.mjs` を実行する。
+既存のHTTPSリダイレクト処理により、HTTP起動では `Failed to determine the https port for redirect.` という警告が記録される場合がある。ランチャー追加時の確認では両モードでHTTP 200とControl+C後のポート解放を確認した。ランチャーの追加に伴うアプリ側のHTTPS設定変更は行っていない。CLI自動試験はリポジトリルートで `node --test tests/shell/*.test.mjs` を実行する。
 
-Git管理する本体はリポジトリ直下の `run-usdm.sh`。上記作業フォルダの同名ファイルは本体を呼び出す補助シェルであり、Git管理外である。本体へ直接 `./USDM_Maker/run-usdm.sh` を指定しても同じ動作となる。どちらも呼び出し元のカレントフォルダに依存しない。HTTPのループバック接続・Development環境に限定した動作確認用であり、外部公開や本番運用用ではない。
+Git管理するランチャーはリポジトリ直下の [run-usdm.sh](../run-usdm.sh) 本体だけで、旧配置の呼出し用補助シェルは廃止した。本体は呼び出し元のカレントフォルダに依存せず、リポジトリ内のWebプロジェクトを起動する。HTTPのループバック接続・Development環境に限定した動作確認用であり、外部公開や本番運用用ではない。
+
+## フォルダ配置（2026-10-28整理）
+
+`/Users/Taichiro/work/USDM_Maker` をGit・作業・ソリューション共通のルートとし、`.git`、`USDM_MindMap_Editor.sln`、`Directory.Build.props`、`global.json`、`src`、`tests`、`sample`、`docs`、`run-usdm.sh` を直下へ統合した。ソリューション・プロジェクト名、名前空間は変更していない。構成図は [architecture.md](architecture.md) §3を参照する。
+
+文書内の `src/`、`tests/`、`sample/`、`artifacts/`、`logs/` の記載は、このルートを基準とする。過去の画面・計測成果物はルートの `artifacts/` へ衝突なく統合し、検証時点の数値・結果は維持した。フォルダ移動は過去試験の再実施を意味しない。確認用ホストの手順は [VisualTests/README.md](../tests/USDM_MindMap_Editor.VisualTests/README.md) に記載する。
 
 ## ドキュメント構成
 
