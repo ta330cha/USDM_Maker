@@ -18,3 +18,7 @@
 *.trx
 *.coverage
 *.coveragexml
+
+# Local runtime logs (may contain exception details and local paths)
+**/logs/
+*.log

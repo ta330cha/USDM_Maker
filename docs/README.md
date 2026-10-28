@@ -24,6 +24,35 @@ USDM_MindMap_Editor は、USDM（Universal Specification Describing Manner）の
 - 初期開発: `dotnet run` によるローカル起動
 - 保存形式: YAML ファイル
 
+## ローカル動作確認（macOS）
+
+.NET 10 SDKを用意し、作業フォルダから起動する。
+
+```bash
+cd /Users/Taichiro/work/USDM_Maker
+./run-usdm.sh
+```
+
+Safariで `http://127.0.0.1:5223` を開く。起動対象は確認専用ホストではなく通常のWebアプリで、既定では復元・ビルドも実行する。停止は同じターミナルで `Control+C` とする。既存の別サーバーは停止せず、ポートが使用中の場合は `--port 5230` 等を指定する。
+
+```bash
+# 既存の標準出力・標準エラーを作業フォルダの logs へ保存
+./run-usdm.sh --log
+
+# ビルド済みのアプリを別ポートで起動
+./run-usdm.sh --no-build --port 5230
+
+./run-usdm.sh --help
+```
+
+`--log` の保存先は `/Users/Taichiro/work/USDM_Maker/logs/usdm-日時-PID.log`。起動ごとに新規作成し、既存ログは上書きしない。端末にはURLと保存先を表示し、その後の動作ログはファイルだけへ出力する。起動・ビルド・ASP.NET Coreのコンソールログ・標準エラーを記録し、ログフォルダ・ファイル作成失敗や起動失敗は非ゼロ終了する。実行途中のディスク容量監視、ログの自動削除・ローテーションは追加していない。
+
+現在のログ設定は `Default=Information`、`Microsoft.AspNetCore=Warning`。ノード操作ごとの監査ログやブラウザのJavaScriptコンソール収集は実装されておらず、本ランチャーも追加しない。ログは例外情報・ローカルパス等を含む可能性があるためGit対象外とする。
+
+既存のHTTPSリダイレクト処理により、HTTP起動では `Failed to determine the https port for redirect.` という警告が記録される場合がある。今回の確認では両モードでHTTP 200とControl+C後のポート解放を確認した。ランチャーの追加に伴うアプリ側のHTTPS設定変更は行っていない。CLI自動試験はソリューションフォルダで `node --test tests/shell/*.test.mjs` を実行する。
+
+Git管理する本体はリポジトリ直下の `run-usdm.sh`。上記作業フォルダの同名ファイルは本体を呼び出す補助シェルであり、Git管理外である。本体へ直接 `./USDM_Maker/run-usdm.sh` を指定しても同じ動作となる。どちらも呼び出し元のカレントフォルダに依存しない。HTTPのループバック接続・Development環境に限定した動作確認用であり、外部公開や本番運用用ではない。
+
 ## ドキュメント構成
 
 | ファイル | 内容 |
