@@ -7,6 +7,12 @@ import test from 'node:test';
 const home = await readFile(new URL('../../src/USDM_MindMap_Editor.Web/Components/Pages/Home.razor', import.meta.url), 'utf8');
 const markup = home.split('@code')[0].replace(/<!--[^]*?-->/g, '').replace(/@\*[^]*?\*@/g, '');
 
+function toolbarHeader() {
+    const header = markup.match(/<header\b([^>]*class="editor-toolbar"[^>]*)>([^]*?)<\/header>/);
+    assert.ok(header, 'Home must retain its controlled toolbar region');
+    return { attributes: header[1], content: header[2] };
+}
+
 function toolbarButtons() {
     const actions = markup.match(/<div\b[^>]*class="toolbar-actions"[^>]*>([^]*?)<\/div>/);
     assert.ok(actions, 'Home must retain the toolbar action container');
@@ -38,4 +44,27 @@ test('source contract: Home retains its existing ResetZoom method and delegates 
     const method = home.match(/^    private async Task ResetZoom\(\)\s*\{([^]*?)^    \}/m);
     assert.ok(method, 'Reset implementation remains available for a future UI entry point');
     assert.match(method[1], /InvokeVoidAsync\("resetCanvas",\s*_canvasElement,\s*_settings\.InitialZoom\)/);
+});
+
+test('source contract: toolbar contains only its command area, while the browser PageTitle remains unchanged', () => {
+    const { content } = toolbarHeader();
+    assert.doesNotMatch(content, /USDM MindMap Editor|<strong\b/, 'Remove only the in-toolbar application title');
+    assert.match(content.trim(), /^<div\b[^>]*class="toolbar-actions"[^>]*>[^]*<\/div>$/,
+        'Do not leave a separate title container or an empty sibling row');
+    assert.equal((content.match(/<div\b/g) ?? []).length, 1, 'The toolbar has one command area');
+    assert.match(markup, /<PageTitle>USDM MindMap Editor<\/PageTitle>/, 'Preserve the browser tab title');
+});
+
+test('source contract: title removal preserves the toolbar ID and its toggle accessibility relationship', () => {
+    const { attributes } = toolbarHeader();
+    const toggle = markup.match(/<button\b([^>]*class="toolbar-toggle"[^>]*)>/);
+    assert.ok(toggle, 'The existing independent menu toggle remains');
+    const toolbarId = attributes.match(/\bid="([^"]+)"/)?.[1];
+    const controlledId = toggle[1].match(/\baria-controls="([^"]+)"/)?.[1];
+    assert.ok(toolbarId, 'The controlled menu retains its ID');
+    assert.equal(controlledId, toolbarId, 'The toggle must control this same toolbar');
+    assert.match(attributes, /\bhidden="@\(!_toolbarVisible\)"/);
+    assert.match(toggle[1], /\baria-expanded="@_toolbarVisible\.ToString\(\)\.ToLowerInvariant\(\)"/);
+    assert.match(toggle[1], /\btabindex="0"/);
+    assert.match(toggle[1], /@onclick="ToggleToolbarAsync"/);
 });
