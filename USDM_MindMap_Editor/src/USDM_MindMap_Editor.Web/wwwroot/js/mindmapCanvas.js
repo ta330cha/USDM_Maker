@@ -34,6 +34,8 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     let additionPending = false;
     let additionDialogOpen = false;
     let additionRequestVersion = 0;
+    let toolbarToggleInProgress = false;
+    let suppressedToolbarClick = false;
     const events = new AbortController();
     const pendingMeasurements = new Map();
     const reportedSizes = new Map();
@@ -87,6 +89,9 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     const presentationActive = () => windowActive && globalThis.document?.hidden !== true
         && globalThis.document?.visibilityState !== 'hidden';
     const treeInteractionBusy = () => Boolean(treeGesture || moveCommitPending);
+    const toolbarToggleBusy = () => toolbarToggleInProgress || additionPending || additionDialogOpen
+        || Boolean(additionGesture || panGesture) || treeInteractionBusy();
+    const isToolbarToggle = target => Boolean(target?.closest?.('.toolbar-toggle'));
     const geometryBusy = () => geometryPending || Number(root.dataset?.layoutRevision) > treeLayoutRevision;
     const insideEditor = target => editorShell?.contains?.(target) ?? root.contains(target);
     const releaseGeometryBarrier = () => {
@@ -95,7 +100,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     };
 
     const setAdditionHover = region => {
-        if (additionPending || additionDialogOpen || treeInteractionBusy() || !presentationActive()) region = null;
+        if (toolbarToggleInProgress || additionPending || additionDialogOpen || treeInteractionBusy() || !presentationActive()) region = null;
         if (hoveredAdditionRegion === region) return;
         if (hoveredAdditionRegion) {
             hoveredAdditionRegion.classList.remove('is-hovered');
@@ -149,7 +154,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     };
 
     const requestChildAddition = async (key, region, modality) => {
-        if (disposed || additionPending || additionDialogOpen || treeInteractionBusy()) return;
+        if (disposed || toolbarToggleInProgress || additionPending || additionDialogOpen || treeInteractionBusy()) return;
         additionOrigin = { region, modality };
         additionPending = true;
         setAdditionHover(null);
@@ -170,7 +175,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     };
 
     const requestBackgroundAddition = async (x, y) => {
-        if (disposed || additionPending || additionDialogOpen || treeInteractionBusy() || geometryBusy()) return;
+        if (disposed || toolbarToggleInProgress || additionPending || additionDialogOpen || treeInteractionBusy() || geometryBusy()) return;
         root.focus({ preventScroll: true });
         additionOrigin = { region: root, modality: 'pointer' };
         additionPending = true;
@@ -386,6 +391,12 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     // Track keyboard navigation outside the canvas too, so Tab from the toolbar
     // can reveal the focus ring. Dialog input is deliberately ignored.
     globalThis.document?.addEventListener('keydown', event => {
+        if (insideEditor(event.target) && (toolbarToggleInProgress
+            || (isToolbarToggle(event.target) && ['Enter', ' '].includes(event.key) && toolbarToggleBusy()))) {
+            consumeAdditionEvent(event);
+            return;
+        }
+        if (isToolbarToggle(event.target) && ['Enter', ' '].includes(event.key)) suppressedToolbarClick = false;
         if (event.key === 'Escape' && treeGesture) {
             consumeAdditionEvent(event);
             cancelTreeDrag();
@@ -402,9 +413,19 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         restoreKeyboardFocus();
     }, { capture: true, signal: events.signal });
     globalThis.document?.addEventListener('click', event => {
-        if (treeInteractionBusy() && insideEditor(event.target)) consumeAdditionEvent(event);
+        if (isToolbarToggle(event.target) && ((suppressedToolbarClick && event.detail !== 0) || toolbarToggleBusy())) {
+            suppressedToolbarClick = false;
+            consumeAdditionEvent(event);
+            return;
+        }
+        if ((toolbarToggleInProgress || treeInteractionBusy()) && insideEditor(event.target)) consumeAdditionEvent(event);
     }, { capture: true, signal: events.signal });
-    globalThis.document?.addEventListener('pointerdown', () => {
+    globalThis.document?.addEventListener('pointerdown', event => {
+        if (isToolbarToggle(event.target)) {
+            suppressedToolbarClick = toolbarToggleBusy();
+            if (suppressedToolbarClick) { consumeAdditionEvent(event); return; }
+        }
+        if (toolbarToggleInProgress && insideEditor(event.target)) { consumeAdditionEvent(event); return; }
         if (additionPending || additionDialogOpen) return;
         inputModality = 'pointer';
         setKeyboardFocus(null);
@@ -437,7 +458,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
 
     root.addEventListener('wheel', event => {
         event.preventDefault();
-        if (treeInteractionBusy()) return;
+        if (toolbarToggleInProgress || treeInteractionBusy()) return;
         const bounds = root.getBoundingClientRect();
         const pointerX = event.clientX - bounds.left;
         const pointerY = event.clientY - bounds.top;
@@ -452,7 +473,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     }, { passive: false, signal: events.signal });
 
     root.addEventListener('pointerdown', event => {
-        if (treeInteractionBusy()) {
+        if (toolbarToggleInProgress || treeInteractionBusy()) {
             consumeAdditionEvent(event);
             return;
         }
@@ -508,6 +529,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         root.setPointerCapture(event.pointerId);
     }, { capture: true, signal: events.signal });
     root.addEventListener('pointermove', event => {
+        if (toolbarToggleInProgress) { consumeAdditionEvent(event); return; }
         if (treeGesture?.pointerId === event.pointerId) {
             consumeAdditionEvent(event);
             treeGesture.latestX = event.clientX;
@@ -537,6 +559,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     }, { capture: true, signal: events.signal });
     root.addEventListener('pointerleave', () => setAdditionHover(null), { signal: events.signal });
     root.addEventListener('pointerup', event => {
+        if (toolbarToggleInProgress) { consumeAdditionEvent(event); return; }
         if (treeGesture?.pointerId === event.pointerId) {
             consumeAdditionEvent(event);
             const gesture = treeGesture;
@@ -621,7 +644,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         }
     }, { capture: true, signal: events.signal });
     root.addEventListener('click', event => {
-        if (treeInteractionBusy()) {
+        if (toolbarToggleInProgress || treeInteractionBusy()) {
             consumeAdditionEvent(event);
             blankClickCount = 0;
             return;
@@ -655,6 +678,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     root.addEventListener('dblclick', event => {
         const validSequence = blankClickCount === 2;
         blankClickCount = 0;
+        if (toolbarToggleInProgress) { consumeAdditionEvent(event); return; }
         if (event.button !== 0 || !validSequence || !isBlankCanvas(event) || additionGesture
             || additionPending || additionDialogOpen || treeInteractionBusy()) return;
         if (geometryBusy()) return;
@@ -664,7 +688,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
     }, { capture: true, signal: events.signal });
 
     root.addEventListener('keydown', event => {
-        if (treeInteractionBusy()) consumeAdditionEvent(event);
+        if (toolbarToggleInProgress || treeInteractionBusy()) consumeAdditionEvent(event);
     }, { capture: true, signal: events.signal });
 
     // toggle does not bubble; capture survives Blazor updates to details elements.
@@ -676,6 +700,35 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
 
     canvases.set(root, {
         updateTreeLayout: replaceTreeLayout,
+        tryBeginToolbarToggle() {
+            if (disposed || toolbarToggleBusy()) return false;
+            toolbarToggleInProgress = true;
+            blankClickCount = 0;
+            suppressedPointerClick = undefined;
+            suppressedToolbarClick = false;
+            setAdditionHover(null);
+            return true;
+        },
+        completeToolbarToggle(button, expectedVisible) {
+            if (!toolbarToggleInProgress) return true;
+            // Blazor can render once before its async click handler has finished.
+            // Keep the lock until the actual controlled DOM matches the new state.
+            if (button && typeof expectedVisible === 'boolean') {
+                const toolbar = globalThis.document?.getElementById(button.getAttribute('aria-controls'));
+                if (!toolbar || toolbar.hidden !== !expectedVisible
+                    || button.getAttribute('aria-expanded') !== String(expectedVisible)) return false;
+            }
+            blankClickCount = 0;
+            suppressedPointerClick = undefined;
+            suppressedToolbarClick = false;
+            setAdditionHover(null);
+            // Flush only the viewport's layout. Hit tests keep reading fresh rects;
+            // toolbar changes must not measure nodes or report document changes.
+            root.getBoundingClientRect();
+            toolbarToggleInProgress = false;
+            button?.focus({ preventScroll: true });
+            return true;
+        },
         restoreReasonState(key, expanded) {
             const node = globalThis.document?.getElementById(`node-${key}`);
             if (!node || !root.contains(node)) return;
@@ -703,7 +756,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
             }
         },
         reset(defaultZoom) {
-            if (treeInteractionBusy()) return false;
+            if (toolbarToggleInProgress || treeInteractionBusy()) return false;
             clearTimeout(syncTimer);
             zoom = defaultZoom;
             panX = 0;
@@ -714,6 +767,7 @@ export function attachCanvas(root, dotnet, initialZoom = 1, initialPanX = 0, ini
         },
         dispose() {
             disposed = true;
+            toolbarToggleInProgress = false;
             additionRequestVersion++;
             moveRequestVersion++;
             cancelTreeDrag();
@@ -757,4 +811,12 @@ export function updateTreeLayout(root, revision, trees) {
 
 export function restoreReasonState(root, key, expanded) {
     canvases.get(root)?.restoreReasonState(key, expanded);
+}
+
+export function tryBeginToolbarToggle(root) {
+    return canvases.get(root)?.tryBeginToolbarToggle() ?? false;
+}
+
+export function completeToolbarToggle(root, button, expectedVisible) {
+    return canvases.get(root)?.completeToolbarToggle(button, expectedVisible) ?? true;
 }

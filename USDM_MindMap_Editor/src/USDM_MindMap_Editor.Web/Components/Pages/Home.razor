@@ -14,8 +14,18 @@
 
 <PageTitle>USDM MindMap Editor</PageTitle>
 
-<div class="editor-shell">
-    <header class="editor-toolbar">
+<div class="editor-shell" style="@ToolbarSettingsStyle" data-toolbar-visible="@_toolbarVisible.ToString().ToLowerInvariant()">
+    <button type="button" class="toolbar-toggle" tabindex="0" @ref="_toolbarToggleElement"
+            title="@ToolbarToggleLabel" aria-label="@ToolbarToggleLabel"
+            aria-expanded="@_toolbarVisible.ToString().ToLowerInvariant()" aria-controls="@_toolbarId"
+            disabled="@(_additionTarget is not null || _savingNode || _closingAddition)"
+            @onclick="ToggleToolbarAsync" @onclick:stopPropagation="true"
+            @ondblclick:stopPropagation="true" @onpointerdown:stopPropagation="true" @onkeydown:stopPropagation="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="@(_toolbarVisible ? "chevron-up" : "chevron-down")">
+            <path d="M 6 15 L 12 9 L 18 15" />
+        </svg>
+    </button>
+    <header class="editor-toolbar" id="@_toolbarId" hidden="@(!_toolbarVisible)">
         <strong>USDM MindMap Editor</strong>
         <div class="toolbar-actions">
             <button type="button">新規</button>
@@ -92,6 +102,12 @@
     private long _sentLayoutRevision;
     private bool _disposed;
     private ElementReference _canvasElement;
+    private ElementReference _toolbarToggleElement;
+    private readonly string _toolbarId = $"editor-toolbar-{Guid.NewGuid():N}";
+    private bool _toolbarVisible = true;
+    private bool _toolbarToggleInProgress;
+    private bool _toolbarCompletionPending;
+    private bool _toolbarCancellationPending;
     private IJSObjectReference? _canvasModule;
     private DotNetObjectReference<Home>? _dotNetReference;
     // Reference identity also makes every dialog invocation a distinct Blazor key.
@@ -130,6 +146,30 @@
                 _uiSettings.ChildAddHitHeight, _uiSettings.ChildAddDragTolerance, _uiSettings.ChildAddWidthRatio,
                 _uiSettings.TreeDragTolerance);
         }
+        // A toolbar-only render deliberately leaves the layout revision unchanged.
+        // Complete the viewport/focus transaction before the revision short circuit.
+        if ((_toolbarCompletionPending || _toolbarCancellationPending) && _canvasModule is not null)
+        {
+            try
+            {
+                // An earlier render can finish while the async click is awaiting
+                // JS. Keep the lock until the DOM actually has the desired state.
+                var completed = _toolbarCancellationPending
+                    ? await _canvasModule.InvokeAsync<bool>("completeToolbarToggle", _canvasElement, (object?)null)
+                    : await _canvasModule.InvokeAsync<bool>("completeToolbarToggle", _canvasElement, _toolbarToggleElement, _toolbarVisible);
+                if (completed)
+                {
+                    _toolbarCompletionPending = false;
+                    _toolbarCancellationPending = false;
+                    _toolbarToggleInProgress = false;
+                }
+            }
+            catch (JSDisconnectedException)
+            {
+                // Completion was not acknowledged. Retry on the next render
+                // after reconnection instead of forgetting an active JS lock.
+            }
+        }
         if (_canvasModule is null || _sentLayoutRevision == _session.Revision) return;
         var revision = _session.Revision;
         await _canvasModule.InvokeVoidAsync("updateTreeLayout", _canvasElement, revision, _layout.Trees.Select(tree => new
@@ -139,6 +179,43 @@
             bounds = new { x = tree.Bounds.X, y = tree.Bounds.Y, width = tree.Bounds.Width, height = tree.Bounds.Height }
         }).ToArray());
         _sentLayoutRevision = revision;
+    }
+
+    private async Task ToggleToolbarAsync()
+    {
+        if (_disposed || _canvasModule is null || _toolbarToggleInProgress
+            || _additionTarget is not null || _savingNode || _closingAddition) return;
+        _toolbarToggleInProgress = true;
+        var accepted = false;
+        try
+        {
+            // Browser-side gestures must be checked where they run, not inferred
+            // from stale server state or synchronized on every pointer movement.
+            accepted = await _canvasModule.InvokeAsync<bool>("tryBeginToolbarToggle", _canvasElement);
+            if (!accepted || _disposed || _additionTarget is not null || _savingNode || _closingAddition) return;
+            _toolbarVisible = !_toolbarVisible;
+            _toolbarCompletionPending = true;
+        }
+        catch (JSDisconnectedException)
+        {
+            // JS may have acquired the lock even if its reply was interrupted.
+            // Preserve a cancellation request for the next successful render.
+            _toolbarCancellationPending = true;
+        }
+        finally
+        {
+            if (!_toolbarCompletionPending)
+            {
+                try
+                {
+                    // A concurrent modal/disposal may have invalidated acceptance.
+                    // Release the JS lock without moving focus out of a dialog.
+                    if (accepted && !_disposed) await _canvasModule.InvokeVoidAsync("completeToolbarToggle", _canvasElement, (object?)null);
+                }
+                catch (JSDisconnectedException) { _toolbarCancellationPending = true; }
+                finally { _toolbarToggleInProgress = _toolbarCancellationPending; }
+            }
+        }
     }
 
     [JSInvokable]
@@ -321,6 +398,8 @@
     }
 
     private string WorldStyle => $"width:{Px(_layout.CanvasBounds.Width)}; height:{Px(_layout.CanvasBounds.Height)}";
+    private string ToolbarToggleLabel => _toolbarVisible ? "メニューを隠す" : "メニューを表示";
+    private string ToolbarSettingsStyle => $"--toolbar-toggle-size:{Px(_uiSettings.ToolbarToggleDiameter)};--toolbar-toggle-icon-size:{Px(_uiSettings.ToolbarToggleIconSize)};--toolbar-toggle-inset:{Px(_uiSettings.ToolbarToggleInset)}";
     private string SvgStyle => $"left:{Px(_layout.CanvasBounds.X)};top:{Px(_layout.CanvasBounds.Y)};--connection-stroke-width:{Px(_settings.ConnectionStrokeWidth)}";
     private string SvgViewBox => $"{Number(_layout.CanvasBounds.X)} {Number(_layout.CanvasBounds.Y)} {Number(_layout.CanvasBounds.Width)} {Number(_layout.CanvasBounds.Height)}";
 

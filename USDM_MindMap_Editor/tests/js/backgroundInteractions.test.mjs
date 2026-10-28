@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { attachCanvas, detachCanvas, resetCanvas, setAdditionDialogOpen, updateTreeLayout, restoreReasonState }
+import { attachCanvas, detachCanvas, resetCanvas, setAdditionDialogOpen, updateTreeLayout, restoreReasonState,
+    tryBeginToolbarToggle, completeToolbarToggle }
     from '../../src/USDM_MindMap_Editor.Web/wwwroot/js/mindmapCanvas.js';
 
 function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
     const calls = [], captures = new Set(), frames = new Map();
-    let nextFrame = 1, resize, mutation, treeQueries = 0;
+    let nextFrame = 1, resize, mutation, treeQueries = 0, nodeReads = 0, viewportReads = 0, nodeQueries = 0;
+    let viewport = { left: 10, top: 20 };
     let commitResponse = () => Promise.resolve(true), additionResponse = () => Promise.resolve(true);
     let measurementResponse = () => Promise.resolve(1);
     const doc = new EventTarget(), win = new EventTarget();
@@ -32,11 +34,20 @@ function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
         querySelectorAll() { return []; },
         getAttribute(name) { return name === 'aria-label' ? this.dataset.tooltip : this[name] ?? null; },
         removeAttribute(name) { if (name === 'title') this.title = ''; },
-        focus() { doc.activeElement = this; }
+        focus(options) {
+            const previous = doc.activeElement;
+            this.focusOptions = options;
+            doc.activeElement = this;
+            for (const [type, target, relatedTarget] of [['focusout', previous, this], ['focusin', this, previous]]) {
+                if (!root.contains(target) || previous === this) continue;
+                const event = new Event(type); Object.defineProperty(event, 'target', { value: target });
+                Object.defineProperty(event, 'relatedTarget', { value: relatedTarget }); root.dispatchEvent(event);
+            }
+        }
     });
     const root = new EventTarget();
     Object.assign(root, element(['mindmap-canvas']), {
-        getBoundingClientRect: () => ({ left: 10, top: 20 }),
+        getBoundingClientRect: () => { viewportReads++; return { ...viewport }; },
         setPointerCapture: id => captures.add(id), hasPointerCapture: id => captures.has(id), releasePointerCapture: id => captures.delete(id),
         contains: target => target === root || Boolean(target?.closest?.('.mindmap-canvas'))
     });
@@ -44,6 +55,9 @@ function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
     shell.contains = target => target === shell || target?.closest?.('.editor-shell') === shell;
     root.parentElement = shell;
     const toolbar = element([], shell); toolbar.isControl = true;
+    const toggle = element(['toolbar-toggle'], shell); toggle.isControl = true;
+    toggle['aria-controls'] = 'editor-toolbar'; toggle['aria-expanded'] = 'true';
+    const header = { id: 'editor-toolbar', hidden: false };
     const world = element(['mindmap-world'], root), svg = element(['connectors'], world);
     const layout = [
         { backgroundId: '001', position: { x: 100, y: 100 }, bounds: { x: 100, y: 100, width: 500, height: 600 } },
@@ -54,11 +68,11 @@ function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
         nodes.dataset.backgroundId = connectors.dataset.backgroundId = tree.backgroundId;
         const node = element(['node', 'background-node'], nodes);
         node.id = `node-background:${tree.backgroundId}`;
-        node.getBoundingClientRect = () => ({
-            left: 10 + panX + tree.position.x * zoom, top: 20 + panY + tree.position.y * zoom,
-            right: 10 + panX + (tree.position.x + 280) * zoom, bottom: 20 + panY + (tree.position.y + 110) * zoom,
+        node.getBoundingClientRect = () => { nodeReads++; return {
+            left: viewport.left + panX + tree.position.x * zoom, top: viewport.top + panY + tree.position.y * zoom,
+            right: viewport.left + panX + (tree.position.x + 280) * zoom, bottom: viewport.top + panY + (tree.position.y + 110) * zoom,
             width: 280 * zoom, height: 110 * zoom
-        });
+        }; };
         const region = element(['child-add-region'], node);
         region.dataset.parentKey = `background:${tree.backgroundId}`;
         region.dataset.tooltip = '上位要求を追加'; region.isControl = true;
@@ -66,13 +80,13 @@ function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
         const path = element([], connectors); path.isPath = true;
         return { nodes, connectors, node, region, path };
     });
-    world.querySelectorAll = () => groups.map(group => group.node);
+    world.querySelectorAll = () => { nodeQueries++; return groups.map(group => group.node); };
     root.querySelector = selector => selector === '.mindmap-world' ? world : null;
     root.querySelectorAll = selector => { treeQueries++; return groups.map(group => selector === '.tree-nodes' ? group.nodes : group.connectors); };
     doc.elementFromPoint = (x, y) => groups.map(group => group.node).find(node => {
         const r = node.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     }) ?? null;
-    doc.getElementById = id => groups.map(group => group.node).find(node => node.id === id) ?? null;
+    doc.getElementById = id => id === header.id ? header : groups.map(group => group.node).find(node => node.id === id) ?? null;
     globalThis.document = doc; globalThis.window = win;
     globalThis.requestAnimationFrame = callback => { const id = nextFrame++; frames.set(id, callback); return id; };
     globalThis.cancelAnimationFrame = id => frames.delete(id);
@@ -82,23 +96,27 @@ function harness({ zoom = 1, panX = 0, panY = 0 } = {}) {
     attachCanvas(root, { invokeMethodAsync(method, ...args) {
         calls.push({ method, args });
         return method === 'CommitBackgroundMove' ? commitResponse(...args)
-            : method === 'RequestBackgroundAddition' ? additionResponse(...args)
+            : ['RequestBackgroundAddition', 'RequestChildAddition'].includes(method) ? additionResponse(...args)
             : method === 'NodeSizesChanged' ? measurementResponse(...args) : Promise.resolve(true);
     } }, zoom, panX, panY);
     updateTreeLayout(root, 1, layout);
     const body = groups[0].node.getBoundingClientRect();
     const start = { x: body.left + 10, y: body.top + 10 };
     const h = {
-        root, world, doc, win, toolbar, groups, layout, calls, captures, start,
+        root, world, doc, win, toolbar, toggle, header, groups, layout, calls, captures, start,
         treeQueries: () => treeQueries,
+        metrics: () => ({ nodeReads, viewportReads, nodeQueries, treeQueries }),
+        setViewport: rect => viewport = { ...rect },
+        renderToolbar(visible) { header.hidden = !visible; toggle['aria-expanded'] = String(visible); },
         setCommitResponse: fn => commitResponse = fn, setAdditionResponse: fn => additionResponse = fn,
         setMeasurementResponse: fn => measurementResponse = fn,
         event(type, { target = groups[0].node, x = start.x, y = start.y, ...extra } = {}) {
             const event = new Event(type, { cancelable: true });
             Object.assign(event, { clientX: x, clientY: y, pointerId: 1, button: 0, isPrimary: true, ...extra });
             Object.defineProperty(event, 'target', { value: target });
-            if (type === 'pointerdown' || type === 'keydown') doc.dispatchEvent(event);
-            root.dispatchEvent(event); return event;
+            if (['pointerdown', 'keydown', 'click'].includes(type)) doc.dispatchEvent(event);
+            if (!event.defaultPrevented && root.contains(target)) root.dispatchEvent(event);
+            return event;
         },
         flush() { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); },
         move(dx, dy = 0) { this.event('pointermove', { x: start.x + dx, y: start.y + dy }); this.flush(); },
@@ -346,5 +364,179 @@ test('unchanged valid size acknowledgements do not deadlock and DOM revisions ca
         assert.equal(h.groups[0].nodes.style.transform, 'translate(30px, 0px)', 'late stale snapshots must not cancel current gestures');
         h.event('pointerup', { x: h.start.x + 30 });
         assert.equal(h.commits().length, 1);
+    } finally { detachCanvas(h.root); }
+});
+
+test('toolbar toggle waits for rendered state, preserves geometry and transform, and never measures nodes', () => {
+    const h = harness({ zoom: .25, panX: 31, panY: -17 });
+    try {
+        const layout = JSON.stringify(h.layout), transform = h.world.style.transform, metrics = h.metrics();
+        assert.equal(tryBeginToolbarToggle(h.root), true);
+        assert.equal(tryBeginToolbarToggle(h.root), false, 'duplicate request is locked');
+        assert.equal(completeToolbarToggle(h.root, h.toggle, false), false, 'pre-await render must not release the lock');
+        h.header.hidden = true;
+        assert.equal(completeToolbarToggle(h.root, h.toggle, false), false, 'ARIA state must also be current');
+        h.renderToolbar(false); h.setViewport({ left: 10, top: 0 });
+        assert.equal(completeToolbarToggle(h.root, h.toggle, false), true);
+        h.flush();
+        assert.equal(h.world.style.transform, transform);
+        assert.equal(JSON.stringify(h.layout), layout);
+        assert.deepEqual(h.calls, [], 'no CanvasChanged, node measurements, layout or document calls');
+        assert.deepEqual(h.metrics(), { ...metrics, viewportReads: metrics.viewportReads + 1 });
+        assert.equal(h.doc.activeElement, h.toggle);
+        assert.deepEqual(h.toggle.focusOptions, { preventScroll: true });
+        assert.equal(tryBeginToolbarToggle(h.root), true);
+        h.renderToolbar(true);
+        assert.equal(completeToolbarToggle(h.root, h.toggle, true), true);
+    } finally { detachCanvas(h.root); }
+});
+
+test('toolbar rejects pending additions, open dialog, every gesture, and both stages of a tree commit without disturbing them', async () => {
+    const starts = [
+        h => { h.event('pointerdown', { target: h.world, x: 40, y: 1020 }); },
+        h => { h.event('pointerdown', { target: h.world, x: 40, y: 1020 }); h.event('pointermove', { target: h.world, x: 60, y: 1020 }); },
+        h => { const r = h.groups[0].node.getBoundingClientRect(); h.event('pointerdown', { target: h.groups[0].region, x: r.left + r.width / 2, y: r.bottom }); },
+        h => { h.setAdditionResponse(() => new Promise(() => {})); h.event('click', { target: h.groups[0].region, detail: 0 }); },
+        h => { h.setAdditionResponse(() => new Promise(() => {})); h.doubleClick({ target: h.world, x: 40, y: 1020 }); },
+        h => setAdditionDialogOpen(h.root, true),
+        h => h.event('pointerdown'),
+        h => { h.event('pointerdown'); h.move(30); },
+        h => { h.setCommitResponse(() => new Promise(() => {})); h.event('pointerdown'); h.move(30); h.event('pointerup', { x: h.start.x + 30 }); },
+        async h => { h.event('pointerdown'); h.move(30); h.event('pointerup', { x: h.start.x + 30 }); await Promise.resolve(); }
+    ];
+    for (const start of starts) {
+        const h = harness();
+        try {
+            await start(h);
+            const transform = h.world.style.transform, preview = h.groups[0].nodes.style.transform;
+            const captures = [...h.captures], calls = h.calls.length;
+            assert.equal(tryBeginToolbarToggle(h.root), false);
+            for (const key of ['Enter', ' '])
+                assert.equal(h.event('keydown', { target: h.toggle, key }).defaultPrevented, true);
+            assert.equal(h.event('pointerdown', { target: h.toggle }).defaultPrevented, true);
+            assert.equal(h.event('click', { target: h.toggle, detail: 1 }).defaultPrevented, true);
+            assert.equal(h.world.style.transform, transform);
+            assert.equal(h.groups[0].nodes.style.transform, preview);
+            assert.deepEqual([...h.captures], captures);
+            assert.equal(h.calls.length, calls);
+        } finally { detachCanvas(h.root); }
+    }
+});
+
+test('short toolbar transition blocks canvas and toolbar actions until completion', () => {
+    const h = harness();
+    try {
+        const transform = h.world.style.transform;
+        assert.equal(tryBeginToolbarToggle(h.root), true);
+        for (const type of ['pointerdown', 'pointermove', 'pointerup', 'click', 'dblclick', 'keydown'])
+            assert.equal(h.event(type, { key: 'Enter', detail: 1 }).defaultPrevented, true, type);
+        assert.equal(h.event('wheel', { deltaY: -1 }).defaultPrevented, true);
+        for (const target of [h.toolbar, h.toggle]) {
+            for (const type of ['pointerdown', 'click', 'keydown'])
+                assert.equal(h.event(type, { target, key: ' ', detail: 0 }).defaultPrevented, true);
+        }
+        h.event('click', { target: h.groups[0].region, detail: 0 });
+        h.doubleClick({ target: h.world, x: 40, y: 1020 });
+        assert.equal(resetCanvas(h.root), false);
+        assert.equal(h.world.style.transform, transform);
+        assert.equal(h.captures.size, 0);
+        assert.equal(h.calls.length, 0);
+        assert.equal(completeToolbarToggle(h.root, null), true, 'abort always releases the lock');
+        assert.equal(h.event('click', { target: h.toggle, detail: 0 }).defaultPrevented, false);
+    } finally { detachCanvas(h.root); }
+});
+
+test('blank background coordinates use the new viewport at 25, 100 and 200 percent with saved pan', () => {
+    for (const zoom of [.25, 1, 2]) {
+        const h = harness({ zoom, panX: 31, panY: -17 });
+        try {
+            assert.equal(tryBeginToolbarToggle(h.root), true);
+            h.setViewport({ left: 25, top: 0 }); h.renderToolbar(false);
+            completeToolbarToggle(h.root, h.toggle, false);
+            h.doubleClick({ target: h.world, x: 56, y: 1020 });
+            assert.deepEqual(h.additions().map(call => call.args), [[0, 1037 / zoom]]);
+        } finally { detachCanvas(h.root); }
+    }
+});
+
+test('background dragging after toolbar toggle uses current node rectangles without changing logical origins', () => {
+    for (const zoom of [.25, 1, 2]) {
+        const h = harness({ zoom, panX: 31, panY: -17 });
+        try {
+            tryBeginToolbarToggle(h.root); h.setViewport({ left: 25, top: 0 });
+            completeToolbarToggle(h.root, null);
+            const r = h.groups[0].node.getBoundingClientRect(), x = r.left + 5, y = r.top + 5;
+            h.event('pointerdown', { x, y });
+            h.event('pointermove', { x: x + 40 * zoom, y }); h.flush();
+            assert.equal(h.groups[0].nodes.style.transform, 'translate(40px, 0px)');
+            h.event('pointerup', { x: x + 40 * zoom, y });
+            assert.deepEqual(h.commits().map(call => call.args), [['001', 140, 100, 1]]);
+        } finally { detachCanvas(h.root); }
+    }
+});
+
+test('toolbar completion clears stale child hover but preserves keyboard focus behavior and fresh ellipse priority', () => {
+    for (const zoom of [.25, 1, 2]) {
+        const h = harness({ zoom, panX: 31, panY: -17 });
+        try {
+            const { node, region } = h.groups[0], old = node.getBoundingClientRect();
+            h.event('pointermove', { target: region, x: old.left + old.width / 2, y: old.bottom });
+            assert.equal(region.classList.contains('is-hovered'), true);
+            region.focus(); h.event('keydown', { target: region, key: 'Tab' });
+            assert.equal(region.classList.contains('is-keyboard-focused'), true);
+            tryBeginToolbarToggle(h.root);
+            assert.equal(region.classList.contains('is-hovered'), false);
+            assert.equal(region.title, '');
+            assert.equal(region.classList.contains('is-keyboard-focused'), true, 'begin must not disable keyboard presentation');
+            h.setViewport({ left: 10, top: -40 }); completeToolbarToggle(h.root, h.toggle);
+            assert.equal(h.doc.activeElement, h.toggle);
+            assert.equal(region.classList.contains('is-keyboard-focused'), false, 'focus follows the toggle button');
+            region.focus();
+            assert.equal(region.classList.contains('is-keyboard-focused'), true, 'Tab back retains keyboard modality');
+            assert.equal(region.classList.contains('is-hovered'), false);
+            const summary = { closest: selector => selector.includes('button, input') ? summary : node.closest(selector) };
+            assert.equal(h.event('click', { target: summary, x: old.left + old.width / 2, y: old.bottom, detail: 1 }).defaultPrevented, false);
+            const now = node.getBoundingClientRect(), options = { target: summary, x: now.left + now.width / 2, y: now.bottom };
+            h.event('pointermove', options);
+            assert.equal(region.classList.contains('is-hovered'), true);
+            assert.equal(h.event('pointerdown', options).defaultPrevented, true);
+            assert.equal(h.event('pointerup', options).defaultPrevented, true);
+            assert.equal(h.calls.filter(call => call.method === 'RequestChildAddition').length, 1);
+        } finally { detachCanvas(h.root); }
+    }
+});
+
+test('toolbar transition resets blank double click history and stale pointer-click suppression', () => {
+    const h = harness();
+    try {
+        const blank = { target: h.world, x: 40, y: 1020 };
+        h.event('click', { ...blank, detail: 1 });
+        tryBeginToolbarToggle(h.root); completeToolbarToggle(h.root, null);
+        h.event('click', { ...blank, detail: 2 }); h.event('dblclick', { ...blank, detail: 2 });
+        assert.equal(h.additions().length, 0);
+        h.event('pointerdown', blank); h.event('pointermove', { ...blank, x: 60 });
+        h.event('pointerup', { ...blank, x: 60 });
+        tryBeginToolbarToggle(h.root); completeToolbarToggle(h.root, null);
+        assert.equal(h.event('click', { ...blank, detail: 1 }).defaultPrevented, false);
+        h.event('click', { ...blank, detail: 2 }); h.event('dblclick', { ...blank, detail: 2 });
+        assert.equal(h.additions().length, 1);
+    } finally { detachCanvas(h.root); }
+});
+
+test('a canceled blocked pointer toggle cannot consume a later keyboard activation, and detach safely ends a toggle', () => {
+    const h = harness();
+    try {
+        const blank = { target: h.world, x: 40, y: 1020 };
+        h.event('pointerdown', blank);
+        assert.equal(h.event('pointerdown', { target: h.toggle }).defaultPrevented, true);
+        h.event('pointercancel', blank);
+        assert.equal(h.event('click', { target: h.toggle, detail: 0 }).defaultPrevented, false);
+        assert.equal(h.event('keydown', { target: h.toggle, key: 'Enter' }).defaultPrevented, false);
+        assert.equal(h.event('click', { target: h.toggle, detail: 0 }).defaultPrevented, false);
+        assert.equal(tryBeginToolbarToggle(h.root), true);
+        detachCanvas(h.root);
+        assert.equal(completeToolbarToggle(h.root, null), true);
+        assert.equal(tryBeginToolbarToggle(h.root), false);
+        assert.equal(h.event('click', { target: h.toggle, detail: 1 }).defaultPrevented, false);
     } finally { detachCanvas(h.root); }
 });

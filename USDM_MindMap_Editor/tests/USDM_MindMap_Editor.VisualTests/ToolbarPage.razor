@@ -1,0 +1,77 @@
+@page "/toolbar/{ZoomPercent:int}/{ViewMode}/{WidthMode}"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@using USDM_MindMap_Editor.Core.Models
+@using USDM_MindMap_Editor.VisualTests
+@inject IJSRuntime JS
+
+@if (_document is not null)
+{
+    <div class="toolbar-test">
+        <div class="toolbar-test-width" style="width:100%;max-width:@(WidthMode == "narrow" ? "360px" : "none")">
+            <Home @key="_document" Document="_document" />
+        </div>
+        <aside @ref="_panel" aria-label="上部メニュー折り畳みの読み取り専用診断"
+               style="position:fixed;right:8px;bottom:38px;width:min(500px,calc(100vw - 16px));max-height:48vh;overflow:hidden;z-index:10000;background:rgba(255,255,255,.96);border:1px solid #64748b;padding:8px;font:11px/1.35 monospace;white-space:pre-wrap;pointer-events:none">
+            上部メニュー診断の起動中（読み取り専用）
+        </aside>
+    </div>
+}
+else
+{
+    <p>倍率は25 / 100 / 200、表示条件はplain / saved-pan、幅はwide / narrowを指定してください。</p>
+}
+
+@code {
+    [Parameter] public int ZoomPercent { get; set; } = 100;
+    [Parameter] public string ViewMode { get; set; } = "plain";
+    [Parameter] public string WidthMode { get; set; } = "wide";
+    private UsdmDocument? _document;
+    private string? _inputKey;
+    private bool _resetDiagnostics;
+    private ElementReference _panel;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _diagnostics;
+
+    protected override void OnParametersSet()
+    {
+        var key = $"{ZoomPercent}/{ViewMode}/{WidthMode}";
+        if (key == _inputKey) return;
+        _inputKey = key;
+        _document = ToolbarScenarioFactory.ZoomPercents.Contains(ZoomPercent)
+            && ToolbarScenarioFactory.ViewModes.Contains(ViewMode)
+            && ToolbarScenarioFactory.WidthModes.Contains(WidthMode)
+                ? ToolbarScenarioFactory.Create(ZoomPercent, ViewMode) : null;
+        _resetDiagnostics = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_resetDiagnostics) return;
+        _resetDiagnostics = false;
+        if (_diagnostics is not null)
+        {
+            await _diagnostics.InvokeVoidAsync("dispose");
+            await _diagnostics.DisposeAsync();
+            _diagnostics = null;
+        }
+        if (_document is null) return;
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./toolbarDiagnostics.js");
+        _diagnostics = await _module.InvokeAsync<IJSObjectReference>("attach", _panel, _inputKey);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_diagnostics is not null)
+            {
+                await _diagnostics.InvokeVoidAsync("dispose");
+                await _diagnostics.DisposeAsync();
+            }
+            if (_module is not null) await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+    }
+}
